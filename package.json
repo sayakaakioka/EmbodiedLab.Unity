@@ -1,0 +1,18 @@
+{
+  "name": "com.embodiedlab.unity",
+  "version": "0.1.0",
+  "displayName": "EmbodiedLab Unity SDK",
+  "description": "Unity SDK for submitting and monitoring EmbodiedLab cloud training jobs and downloading results, replays, and trained models.",
+  "unity": "6000.3",
+  "documentationUrl": "https://github.com/sayakaakioka/EmbodiedLab.Unity#readme",
+  "changelogUrl": "https://github.com/sayakaakioka/EmbodiedLab.Unity/blob/main/CHANGELOG.md",
+  "keywords": [
+    "embodied-ai",
+    "reinforcement-learning",
+    "cloud-training"
+  ],
+  "author": {
+    "name": "sayakaakioka",
+    "url": "https://github.com/sayakaakioka"
+  }
+}
