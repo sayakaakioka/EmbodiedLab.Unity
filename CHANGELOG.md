@@ -10,3 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Initial Unity Package Manager manifest and runtime assembly definition.
+- Versioned EmbodiedLab v0 schemas and deterministic NJsonSchema C# DTO
+  generation.
+- Canonical contract fixture checks and generated-code drift detection.

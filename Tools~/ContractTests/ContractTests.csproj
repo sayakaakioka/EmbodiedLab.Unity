@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GeneratedContractsFile Condition="'$(GeneratedContractsFile)' == ''">../../Runtime/Contracts/EmbodiedLabContracts.g.cs</GeneratedContractsFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(GeneratedContractsFile)" Link="Generated/EmbodiedLabContracts.g.cs" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
+  </ItemGroup>
+</Project>

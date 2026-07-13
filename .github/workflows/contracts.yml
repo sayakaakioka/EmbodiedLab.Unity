@@ -1,0 +1,58 @@
+name: Contracts
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generated-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Validate schema tooling
+        run: |
+          python3 -m pip install ruff==0.15.21
+          ruff check Tools~/contract_schemas.py Tools~/tests
+          ruff format --check Tools~/contract_schemas.py Tools~/tests
+          python3 -m unittest discover -s Tools~/tests -p 'test_*.py'
+
+      - name: Validate JSON files
+        run: |
+          find . -type f -name '*.json' -print0 | sort -z | xargs -0 -n1 python3 -m json.tool >/dev/null
+
+      - name: Restore tools
+        run: |
+          dotnet restore Tools~/ContractCodeGen/ContractCodeGen.csproj
+          dotnet restore Tools~/ContractTests/ContractTests.csproj
+
+      - name: Generate contract candidate
+        run: |
+          python3 Tools~/contract_schemas.py normalize --output /tmp/embodiedlab-contracts.schema.json
+          dotnet run --project Tools~/ContractCodeGen/ContractCodeGen.csproj --configuration Release --no-restore -- /tmp/embodiedlab-contracts.schema.json /tmp/EmbodiedLabContracts.g.cs
+
+      - name: Upload generated candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-contracts
+          path: /tmp/EmbodiedLabContracts.g.cs
+
+      - name: Compile and exercise canonical fixtures
+        run: dotnet run --project Tools~/ContractTests/ContractTests.csproj --configuration Release --no-restore -p:GeneratedContractsFile=/tmp/EmbodiedLabContracts.g.cs -- Tests~/Fixtures
+
+      - name: Lint C# tooling
+        run: |
+          dotnet format Tools~/ContractCodeGen/ContractCodeGen.csproj --verify-no-changes --no-restore
+          dotnet format Tools~/ContractTests/ContractTests.csproj --verify-no-changes --no-restore
+
+      - name: Check committed generation
+        run: cmp /tmp/EmbodiedLabContracts.g.cs Runtime/Contracts/EmbodiedLabContracts.g.cs

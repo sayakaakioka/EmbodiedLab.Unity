@@ -44,6 +44,7 @@
 ExportedObj/
 .consulo/
 *.csproj
+!Tools~/**/*.csproj
 *.unityproj
 *.sln
 *.slnx
@@ -69,6 +70,12 @@ sysinfo.txt
 
 # Mono auto generated files
 mono_crash.*
+
+# Repository-owned .NET tooling output
+Tools~/**/bin/
+Tools~/**/obj/
+**/__pycache__/
+*.py[cod]
 
 # Builds
 *.apk
