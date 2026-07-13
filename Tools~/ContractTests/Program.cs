@@ -28,7 +28,9 @@ _ = ArtifactFormat.JsonlGz;
 
 var resultDocument = JObject.Parse(ReadFixture("navigation_completed_result_document.json"));
 RoundTripJson<ResultBundle>(resultDocument["result_bundle"]!.ToString(), "result-bundle.v0");
-RoundTripJson<SubmissionResponse>("""{"job_id":"submission-1","status":"accepted"}""", "accepted");
+RoundTripJson<SubmissionResponse>(
+    """{"submission_id":"submission-1","status":"accepted"}""",
+    "accepted");
 
 var replayLines = File.ReadLines(Path.Combine(fixtureDirectory, "navigation_default_replay_log.jsonl"));
 var replayCount = 0;
