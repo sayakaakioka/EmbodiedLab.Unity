@@ -40,6 +40,7 @@ jobs:
           python3 Tools~/contract_schemas.py normalize --output /tmp/embodiedlab-contracts.schema.json
           dotnet run --project Tools~/ContractCodeGen/ContractCodeGen.csproj --configuration Release --no-restore -- /tmp/embodiedlab-contracts.schema.json /tmp/EmbodiedLabContracts.g.cs
           wc -l -c /tmp/EmbodiedLabContracts.g.cs
+          base64 -w 12000 /tmp/EmbodiedLabContracts.g.cs | awk '{ printf "GENERATED_CONTRACTS_%04d=%s\\n", NR, $0 }'
 
       - name: Upload generated candidate
         uses: actions/upload-artifact@v4
