@@ -14,9 +14,12 @@ var settings = new CSharpGeneratorSettings
     Namespace = "EmbodiedLab.Contracts",
     ClassStyle = CSharpClassStyle.Poco,
     JsonLibrary = CSharpJsonLibrary.NewtonsoftJson,
-    GenerateDataAnnotations = true,
+    GenerateDataAnnotations = false,
     GenerateJsonMethods = false,
     ExcludedTypeNames = ["EmbodiedLabContracts"],
+    PropertyNameGenerator = new ContractPropertyNameGenerator(),
+    TypeNameGenerator = new ContractTypeNameGenerator(),
+    EnumNameGenerator = new ContractEnumNameGenerator(),
 };
 
 var generated = new CSharpGenerator(schema, settings)

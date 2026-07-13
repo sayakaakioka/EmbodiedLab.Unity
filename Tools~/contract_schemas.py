@@ -35,6 +35,28 @@ UNSUPPORTED_KEYWORDS = {
     "unevaluatedItems",
     "unevaluatedProperties",
 }
+CURRENT_DISCRIMINATED_UNIONS = (
+    (
+        "RewardComponent",
+        "RewardSpec",
+        "components",
+        {
+            "collision": "CollisionRewardComponent",
+            "distance_delta": "DistanceDeltaRewardComponent",
+            "per_step": "PerStepRewardComponent",
+            "terminal_reward": "TerminalRewardComponent",
+        },
+    ),
+    (
+        "SensorSpec",
+        "ScenarioBundle",
+        "sensors",
+        {
+            "distance_sensor": "DistanceSensor",
+            "forward_camera": "ForwardCameraSensor",
+        },
+    ),
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCHEMA_DIRECTORY = ROOT / "Schemas~" / SCHEMA_VERSION
@@ -135,6 +157,37 @@ def _pascal_case(value: str) -> str:
     )
 
 
+def _normalize_nullable_any_of(node: dict[str, Any]) -> dict[str, Any]:
+    choices = node.pop("anyOf")
+    if not isinstance(choices, list) or len(choices) != 2:
+        raise ContractSchemaError(
+            "Only the current two-item nullable anyOf form is supported"
+        )
+
+    null_choices = [choice for choice in choices if choice == {"type": "null"}]
+    non_null_choices = [choice for choice in choices if choice != {"type": "null"}]
+    if len(null_choices) != 1 or len(non_null_choices) != 1:
+        raise ContractSchemaError(
+            "Only the current schema-plus-null nullable anyOf form is supported"
+        )
+
+    non_null = non_null_choices[0]
+    if not isinstance(non_null, dict):
+        raise ContractSchemaError("The non-null nullable anyOf choice must be a schema")
+
+    overlap = {
+        key for key in node.keys() & non_null.keys() if node[key] != non_null[key]
+    }
+    if overlap:
+        raise ContractSchemaError(
+            f"Conflicting nullable anyOf metadata: {sorted(overlap)}"
+        )
+
+    result = {**non_null, **node}
+    result["x-nullable"] = True
+    return result
+
+
 def _normalize_node(
     node: Any,
     *,
@@ -180,6 +233,8 @@ def _normalize_node(
             continue
         result[key] = _normalize_node(value, owner_title=current_owner)
 
+    if "anyOf" in result:
+        result = _normalize_nullable_any_of(result)
     if "enum" in result and len(result["enum"]) == 1 and owner_title and property_name:
         result["title"] = owner_title + _pascal_case(property_name)
     if "$ref" in result and not result["$ref"].startswith("#/definitions/"):
@@ -187,6 +242,85 @@ def _normalize_node(
             f"Only local definition references are supported: {result['$ref']}"
         )
     return result
+
+
+def _apply_current_discriminated_unions(definitions: dict[str, Any]) -> None:
+    for (
+        base_name,
+        container_name,
+        property_name,
+        mapping,
+    ) in CURRENT_DISCRIMINATED_UNIONS:
+        try:
+            items = definitions[container_name]["properties"][property_name]["items"]
+        except (KeyError, TypeError) as error:
+            raise ContractSchemaError(
+                f"Changed current discriminated union: {container_name}.{property_name}"
+            ) from error
+
+        expected_mapping = {
+            wire_value: f"#/definitions/{derived_name}"
+            for wire_value, derived_name in mapping.items()
+        }
+        expected_references = sorted(expected_mapping.values())
+        if (
+            not isinstance(items, dict)
+            or set(items) != {"discriminator", "oneOf"}
+            or items["discriminator"]
+            != {"mapping": expected_mapping, "propertyName": "type"}
+            or not isinstance(items["oneOf"], list)
+            or sorted(
+                choice.get("$ref", "")
+                for choice in items["oneOf"]
+                if isinstance(choice, dict) and set(choice) == {"$ref"}
+            )
+            != expected_references
+            or len(items["oneOf"]) != len(expected_references)
+        ):
+            raise ContractSchemaError(
+                f"Changed current discriminated union: {container_name}.{property_name}"
+            )
+
+        if base_name in definitions:
+            raise ContractSchemaError(
+                f"Discriminated union base already exists: {base_name}"
+            )
+
+        for wire_value, derived_name in mapping.items():
+            try:
+                derived = definitions[derived_name]
+                properties = derived["properties"]
+                discriminator_property = properties["type"]
+            except (KeyError, TypeError) as error:
+                raise ContractSchemaError(
+                    f"Changed current discriminated union member: {derived_name}"
+                ) from error
+
+            if (
+                discriminator_property.get("enum") != [wire_value]
+                or "allOf" in derived
+                or "type" in derived.get("required", [])
+            ):
+                raise ContractSchemaError(
+                    f"Changed current discriminated union member: {derived_name}"
+                )
+
+            del properties["type"]
+            derived["allOf"] = [{"$ref": f"#/definitions/{base_name}"}]
+
+        definitions[base_name] = {
+            "discriminator": {
+                "mapping": expected_mapping,
+                "propertyName": "type",
+            },
+            "properties": {"type": {"type": "string"}},
+            "required": ["type"],
+            "title": base_name,
+            "type": "object",
+            "x-abstract": True,
+        }
+        items.clear()
+        items["$ref"] = f"#/definitions/{base_name}"
 
 
 def build_normalized_bundle(
@@ -213,6 +347,8 @@ def build_normalized_bundle(
         add_definition(title, root)
         property_name = filename.removesuffix(".schema.json").replace("-", "_")
         properties[property_name] = {"$ref": f"#/definitions/{title}"}
+
+    _apply_current_discriminated_unions(definitions)
 
     return {
         "$schema": "http://json-schema.org/draft-07/schema#",

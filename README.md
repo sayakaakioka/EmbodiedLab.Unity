@@ -55,6 +55,10 @@ dotnet run --project Tools~/ContractCodeGen/ContractCodeGen.csproj --configurati
 of every synchronized schema. The CI workflow regenerates the DTOs, compiles
 them, exercises the canonical JSON fixtures, and rejects drift.
 
+The generated DTOs are a serialization contract, not a client-side validation
+layer. They retain Newtonsoft.Json wire-name, enum, and discriminator metadata,
+but intentionally omit `DataAnnotations`.
+
 See [the product direction](docs/vision/product-direction.md) and
 [the implementation roadmap](docs/implementation/sdk-roadmap.md) for the
 current boundaries and progress.

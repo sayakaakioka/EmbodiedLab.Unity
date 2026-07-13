@@ -22,8 +22,16 @@ EmbodiedLab が公開した v0 schema を同期し、現在の契約だけを対
 - EnvForge 固有の UI とジョブ履歴は EnvForge に残す。
 - DTO 生成には NJsonSchema 11.6.1 と Newtonsoft.Json を使う。
 - Pydantic の draft 2020-12 schema は、現在使っている `$defs`、ローカル参照、
-  文字列 `const` だけをビルド時に正規化する。汎用的な schema dialect 変換器や
-  ランタイム互換層にはしない。
+  文字列 `const`、`schema | null` 形式の nullable、および現在の2つの
+  discriminated union だけをビルド時に正規化する。形が変わった場合は失敗させ、
+  汎用的な schema dialect 変換器やランタイム互換層にはしない。
+- discriminated union は `SensorSpec` と `RewardComponent` の抽象基底型として
+  生成し、Newtonsoft.Json の discriminator metadata で現在の具象型へ復元する。
+- 生成 DTO は serialize/deserialize の契約に限定する。wire name、文字列 enum、
+  discriminator に必要な Newtonsoft.Json metadata は残すが、入力検証用の
+  `DataAnnotations` は生成しない。
+- C# の型名、property 名、enum member 名は Unity 利用者向けに PascalCase とし、
+  JSON 上の名前と値は Newtonsoft.Json metadata で保持する。
 - Unity では公式 package `com.unity.nuget.newtonsoft-json` 3.2.2 を使う。
 
 ## 完了済み

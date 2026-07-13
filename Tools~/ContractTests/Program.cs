@@ -6,9 +6,25 @@ var fixtureDirectory = args.Length == 1
     ? Path.GetFullPath(args[0])
     : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../Tests~/Fixtures"));
 
-RoundTrip<ScenarioBundle>("navigation_default_scenario_bundle.json", "scenario-bundle.v0");
+var scenario = RoundTrip<ScenarioBundle>(
+    "navigation_default_scenario_bundle.json",
+    "scenario-bundle.v0");
 RoundTrip<ResultDocument>("navigation_completed_result_document.json", "result-bundle.v0");
 RoundTrip<ReplayBundleManifest>("navigation_replay_bundle_manifest.json", "jsonl.gz");
+
+AssertTypes(
+    scenario.Sensors,
+    typeof(ForwardCameraSensor),
+    typeof(DistanceSensor));
+AssertTypes(
+    scenario.Reward.Components,
+    typeof(TerminalRewardComponent),
+    typeof(DistanceDeltaRewardComponent),
+    typeof(CollisionRewardComponent),
+    typeof(PerStepRewardComponent));
+_ = nameof(WorldSpec.StaticObstacles);
+_ = nameof(ScenarioBundle.SchemaVersion);
+_ = ArtifactFormat.JsonlGz;
 
 var resultDocument = JObject.Parse(ReadFixture("navigation_completed_result_document.json"));
 RoundTripJson<ResultBundle>(resultDocument["result_bundle"]!.ToString(), "result-bundle.v0");
@@ -30,12 +46,12 @@ if (replayCount == 0)
 Console.WriteLine($"Validated canonical contracts and {replayCount} replay steps.");
 return 0;
 
-void RoundTrip<T>(string filename, string expectedWireValue)
+T RoundTrip<T>(string filename, string expectedWireValue)
 {
-    RoundTripJson<T>(ReadFixture(filename), expectedWireValue);
+    return RoundTripJson<T>(ReadFixture(filename), expectedWireValue);
 }
 
-void RoundTripJson<T>(string json, string expectedWireValue)
+T RoundTripJson<T>(string json, string expectedWireValue)
 {
     var settings = new JsonSerializerSettings
     {
@@ -50,8 +66,19 @@ void RoundTripJson<T>(string json, string expectedWireValue)
             $"{typeof(T).Name} did not preserve wire value '{expectedWireValue}'.");
     }
 
-    _ = JsonConvert.DeserializeObject<T>(serialized, settings)
+    return JsonConvert.DeserializeObject<T>(serialized, settings)
         ?? throw new InvalidOperationException($"Could not deserialize round-tripped {typeof(T).Name}.");
+}
+
+void AssertTypes<T>(IEnumerable<T> values, params Type[] expectedTypes)
+{
+    var actualTypes = values.Select(value => value!.GetType()).ToArray();
+    if (!actualTypes.SequenceEqual(expectedTypes))
+    {
+        throw new InvalidOperationException(
+            $"Expected [{string.Join(", ", expectedTypes.Select(type => type.Name))}] " +
+            $"but received [{string.Join(", ", actualTypes.Select(type => type.Name))}].");
+    }
 }
 
 string ReadFixture(string filename)
