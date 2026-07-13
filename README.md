@@ -43,6 +43,23 @@ The implementation is intentionally incremental. EmbodiedLab publishes the
 versioned JSON Schemas, this repository generates and commits matching C# DTOs,
 and handwritten Unity APIs are added only for current use cases.
 
+The contract generator requires Python 3 and the .NET 8 SDK. To regenerate the
+DTOs from the committed schemas:
+
+```bash
+python3 Tools~/contract_schemas.py normalize --output /tmp/embodiedlab-contracts.schema.json
+dotnet run --project Tools~/ContractCodeGen/ContractCodeGen.csproj --configuration Release -- /tmp/embodiedlab-contracts.schema.json Runtime/Contracts/EmbodiedLabContracts.g.cs
+```
+
+`Schemas~/upstream.json` records the exact EmbodiedLab commit and SHA-256 hash
+of every synchronized schema. The CI workflow regenerates the DTOs, compiles
+them, exercises the canonical JSON fixtures, and rejects drift.
+
+The generated DTOs are a serialization contract, not a client-side validation
+layer. They retain Newtonsoft.Json wire-name, enum, and discriminator metadata,
+but intentionally omit `DataAnnotations`. DTOs store only declared fields unless
+the upstream schema explicitly enables additional properties.
+
 See [the product direction](docs/vision/product-direction.md) and
 [the implementation roadmap](docs/implementation/sdk-roadmap.md) for the
 current boundaries and progress.

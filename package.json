@@ -14,5 +14,8 @@
   "author": {
     "name": "sayakaakioka",
     "url": "https://github.com/sayakaakioka"
+  },
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.2.2"
   }
 }
