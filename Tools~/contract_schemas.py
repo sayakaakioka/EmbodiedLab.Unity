@@ -235,6 +235,8 @@ def _normalize_node(
 
     if "anyOf" in result:
         result = _normalize_nullable_any_of(result)
+    if result.get("type") == "object" and "additionalProperties" not in result:
+        result["additionalProperties"] = False
     if "enum" in result and len(result["enum"]) == 1 and owner_title and property_name:
         result["title"] = owner_title + _pascal_case(property_name)
     if "$ref" in result and not result["$ref"].startswith("#/definitions/"):
@@ -309,6 +311,7 @@ def _apply_current_discriminated_unions(definitions: dict[str, Any]) -> None:
             derived["allOf"] = [{"$ref": f"#/definitions/{base_name}"}]
 
         definitions[base_name] = {
+            "additionalProperties": False,
             "discriminator": {
                 "mapping": expected_mapping,
                 "propertyName": "type",

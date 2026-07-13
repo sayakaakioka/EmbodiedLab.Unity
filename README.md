@@ -57,7 +57,8 @@ them, exercises the canonical JSON fixtures, and rejects drift.
 
 The generated DTOs are a serialization contract, not a client-side validation
 layer. They retain Newtonsoft.Json wire-name, enum, and discriminator metadata,
-but intentionally omit `DataAnnotations`.
+but intentionally omit `DataAnnotations`. DTOs store only declared fields unless
+the upstream schema explicitly enables additional properties.
 
 See [the product direction](docs/vision/product-direction.md) and
 [the implementation roadmap](docs/implementation/sdk-roadmap.md) for the

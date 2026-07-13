@@ -60,6 +60,20 @@ class ContractSchemaTests(unittest.TestCase):
         self.assertEqual("#/definitions/Progress", nullable_reference["$ref"])
         self.assertIs(nullable_reference["x-nullable"], True)
 
+        self.assertIs(first["definitions"]["WorldSpec"]["additionalProperties"], False)
+        self.assertIs(
+            first["definitions"]["ResultBundle"]["additionalProperties"], True
+        )
+        self.assertIs(
+            first["definitions"]["ResultDocument"]["additionalProperties"], True
+        )
+        self.assertEqual(
+            {"type": "string"},
+            first["definitions"]["ModelOutput"]["properties"]["action_mapping"][
+                "additionalProperties"
+            ],
+        )
+
     def test_current_discriminated_unions_become_explicit_inheritance(self) -> None:
         schemas = contract_schemas.verify_provenance(
             self.schema_directory, self.manifest
@@ -96,6 +110,7 @@ class ContractSchemaTests(unittest.TestCase):
 
             base = definitions[base_name]
             self.assertIs(base["x-abstract"], True)
+            self.assertIs(base["additionalProperties"], False)
             self.assertEqual(["type"], base["required"])
             self.assertEqual({"type": {"type": "string"}}, base["properties"])
             self.assertEqual("type", base["discriminator"]["propertyName"])

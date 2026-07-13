@@ -30,6 +30,10 @@ EmbodiedLab が公開した v0 schema を同期し、現在の契約だけを対
 - 生成 DTO は serialize/deserialize の契約に限定する。wire name、文字列 enum、
   discriminator に必要な Newtonsoft.Json metadata は残すが、入力検証用の
   `DataAnnotations` は生成しない。
+- upstream schema で `additionalProperties` が省略された object は、コード生成時に
+  宣言済みフィールドだけを持つ DTO とする。Pydantic の標準動作と同様に未宣言
+  フィールドを保持せず、明示的に許可された Result Bundle、Result Document、
+  辞書フィールドだけは追加フィールドを保持する。
 - C# の型名、property 名、enum member 名は Unity 利用者向けに PascalCase とし、
   JSON 上の名前と値は Newtonsoft.Json metadata で保持する。
 - Unity では公式 package `com.unity.nuget.newtonsoft-json` 3.2.2 を使う。
