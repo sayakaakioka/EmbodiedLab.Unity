@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+import xml.etree.ElementTree as ET
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "run_unity_tests.py"
@@ -18,6 +19,39 @@ MODULE_SPEC.loader.exec_module(run_unity_tests)
 
 
 class RunUnityTestsTests(unittest.TestCase):
+    @staticmethod
+    def write_results(results_path: Path, test_results: dict[str, str]) -> None:
+        passed = sum(result == "Passed" for result in test_results.values())
+        failed = sum(result == "Failed" for result in test_results.values())
+        skipped = sum(result == "Skipped" for result in test_results.values())
+        inconclusive = sum(result == "Inconclusive" for result in test_results.values())
+        root = ET.Element(
+            "test-run",
+            {
+                "total": str(len(test_results)),
+                "passed": str(passed),
+                "failed": str(failed),
+                "skipped": str(skipped),
+                "inconclusive": str(inconclusive),
+                "result": "Passed" if failed == 0 else "Failed",
+            },
+        )
+        suite = ET.SubElement(root, "test-suite")
+        for name, result in sorted(test_results.items()):
+            ET.SubElement(
+                suite,
+                "test-case",
+                {
+                    "fullname": name,
+                    "result": result,
+                },
+            )
+        ET.ElementTree(root).write(results_path, encoding="unicode")
+
+    @staticmethod
+    def passing_results() -> dict[str, str]:
+        return {name: "Passed" for name in run_unity_tests.REQUIRED_TEST_NAMES}
+
     def test_main_removes_existing_results_before_starting_unity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary_path = Path(temporary_directory)
@@ -35,10 +69,7 @@ class RunUnityTestsTests(unittest.TestCase):
                 command: list[str], *, check: bool
             ) -> subprocess.CompletedProcess:
                 self.assertFalse(results_path.exists())
-                results_path.write_text(
-                    '<test-run total="4" failed="0" result="Passed" />',
-                    encoding="utf-8",
-                )
+                self.write_results(results_path, self.passing_results())
                 return subprocess.CompletedProcess(command, 0)
 
             arguments = [
@@ -61,6 +92,26 @@ class RunUnityTestsTests(unittest.TestCase):
             self.assertEqual(0, exit_code)
             run_mock.assert_called_once()
             self.assertIn('total="4"', results_path.read_text(encoding="utf-8"))
+
+    def test_validate_results_rejects_a_missing_required_test(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            results_path = Path(temporary_directory) / "results.xml"
+            test_results = self.passing_results()
+            test_results.pop(sorted(test_results)[0])
+            self.write_results(results_path, test_results)
+
+            with self.assertRaisesRegex(RuntimeError, "did not execute required tests"):
+                run_unity_tests.validate_results(results_path)
+
+    def test_validate_results_rejects_a_skipped_required_test(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            results_path = Path(temporary_directory) / "results.xml"
+            test_results = self.passing_results()
+            test_results[sorted(test_results)[0]] = "Skipped"
+            self.write_results(results_path, test_results)
+
+            with self.assertRaisesRegex(RuntimeError, "did not pass required tests"):
+                run_unity_tests.validate_results(results_path)
 
 
 if __name__ == "__main__":

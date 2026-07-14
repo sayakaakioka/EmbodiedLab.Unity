@@ -10,6 +10,14 @@ import xml.etree.ElementTree as ET
 
 
 TEST_ASSEMBLY = "EmbodiedLab.Unity.Editor.Tests"
+REQUIRED_TEST_NAMES = frozenset(
+    {
+        "EmbodiedLab.Unity.Tests.ContractRoundTripTests.ReplayBundleManifestRoundTrips",
+        "EmbodiedLab.Unity.Tests.ContractRoundTripTests.ReplayLogContainsTwoRoundTrippableSteps",
+        "EmbodiedLab.Unity.Tests.ContractRoundTripTests.ResultDocumentAndResultBundleRoundTrip",
+        "EmbodiedLab.Unity.Tests.ContractRoundTripTests.ScenarioBundleRoundTripPreservesConcreteTypes",
+    }
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,13 +53,43 @@ def validate_results(results_path: Path) -> tuple[int, int]:
         raise RuntimeError(f"Could not read Unity test results: {error}") from error
 
     total = int(root.attrib.get("total") or root.attrib.get("testcasecount") or 0)
+    passed = int(root.attrib.get("passed") or 0)
     failed = int(root.attrib.get("failed") or 0)
+    skipped = int(root.attrib.get("skipped") or 0)
+    inconclusive = int(root.attrib.get("inconclusive") or 0)
     result = root.attrib.get("result")
     if total == 0:
         raise RuntimeError("Unity reported zero executed tests.")
-    if failed != 0 or result not in {"Passed", "Success"}:
+
+    test_results = {
+        test_case.attrib.get("fullname"): test_case.attrib.get("result")
+        for test_case in root.iter("test-case")
+    }
+    missing_tests = sorted(REQUIRED_TEST_NAMES - test_results.keys())
+    if missing_tests:
         raise RuntimeError(
-            f"Unity tests did not pass: result={result!r}, total={total}, failed={failed}."
+            f"Unity did not execute required tests: {', '.join(missing_tests)}."
+        )
+
+    non_passing_tests = sorted(
+        name for name in REQUIRED_TEST_NAMES if test_results[name] != "Passed"
+    )
+    if non_passing_tests:
+        raise RuntimeError(
+            f"Unity did not pass required tests: {', '.join(non_passing_tests)}."
+        )
+
+    if (
+        failed != 0
+        or skipped != 0
+        or inconclusive != 0
+        or passed != total
+        or result not in {"Passed", "Success"}
+    ):
+        raise RuntimeError(
+            "Unity tests did not pass completely: "
+            f"result={result!r}, total={total}, passed={passed}, failed={failed}, "
+            f"skipped={skipped}, inconclusive={inconclusive}."
         )
 
     return total, failed
