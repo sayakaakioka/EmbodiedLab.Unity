@@ -34,6 +34,8 @@ jobs:
         run: |
           dotnet restore Tools~/ContractCodeGen/ContractCodeGen.csproj
           dotnet restore Tools~/ContractTests/ContractTests.csproj
+          dotnet restore Tools~/TransportCompatibility/TransportCompatibility.csproj
+          dotnet restore Tools~/TransportTests/TransportTests.csproj
 
       - name: Generate contract candidate
         run: |
@@ -47,13 +49,18 @@ jobs:
           name: generated-contracts
           path: /tmp/EmbodiedLabContracts.g.cs
 
-      - name: Compile and exercise canonical fixtures
-        run: dotnet run --project Tools~/ContractTests/ContractTests.csproj --configuration Release --no-restore -p:GeneratedContractsFile=/tmp/EmbodiedLabContracts.g.cs -- Tests~/Fixtures
+      - name: Compile and exercise SDK behavior
+        run: |
+          dotnet run --project Tools~/ContractTests/ContractTests.csproj --configuration Release --no-restore -p:GeneratedContractsFile=/tmp/EmbodiedLabContracts.g.cs -- Tests~/Fixtures
+          dotnet build Tools~/TransportCompatibility/TransportCompatibility.csproj --configuration Release --no-restore
+          dotnet run --project Tools~/TransportTests/TransportTests.csproj --configuration Release --no-restore
 
       - name: Lint C# tooling
         run: |
           dotnet format Tools~/ContractCodeGen/ContractCodeGen.csproj --verify-no-changes --no-restore
           dotnet format Tools~/ContractTests/ContractTests.csproj --verify-no-changes --no-restore
+          dotnet format Tools~/TransportCompatibility/TransportCompatibility.csproj --verify-no-changes --no-restore
+          dotnet format Tools~/TransportTests/TransportTests.csproj --verify-no-changes --no-restore
 
       - name: Check committed generation
         run: cmp /tmp/EmbodiedLabContracts.g.cs Runtime/Contracts/EmbodiedLabContracts.g.cs

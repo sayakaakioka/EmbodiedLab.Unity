@@ -2,10 +2,9 @@
 
 ## 現在のフェーズ
 
-EmbodiedLab のキャンセル可能なジョブライフサイクルと更新済み v0 契約を
-Unity SDK へ同期する段階にある。契約同期後は、固定環境の submit、監視、
+キャンセル可能な v0 契約の同期は完了した。現在は固定環境の submit、監視、
 キャンセル、成果物取得を、合意済みの WebSocket 優先方針で内部 transport
-として切り出す。
+として切り出す段階にある。
 
 ## 合意済みの設計
 
@@ -107,19 +106,28 @@ Unity SDK へ同期する段階にある。契約同期後は、固定環境の 
 - WebSocket 障害時だけ使う、保存済み Execution に限定した HTTP 照合
 - raw token を保存しない hash 検証と、`run.executions.cancel` だけの最小権限 IAM
 
-EmbodiedLab.Unity Issue #8 では、この変更後の7 schemaを同期し、生成 DTO と
-契約テストへ反映する。
+### キャンセル可能な v0 契約の Unity 同期
+
+[EmbodiedLab.Unity #9](https://github.com/sayakaakioka/EmbodiedLab.Unity/pull/9)
+で以下を完了した。
+
+- EmbodiedLab revision `2f2a80bd0502e351c23d99e6f06a3c42a152c81b` の
+  7 schema と SHA-256 provenance の同期
+- submission の `cancel_token`、独立した training response、`cancelling`、
+  `cancelled` の生成 DTO への反映
+- Python、.NET、CI による schema、response、生成差分の検証
 
 ## このフェーズのスコープ
 
-- EmbodiedLab revision `2f2a80bd0502e351c23d99e6f06a3c42a152c81b` の
-  7 schema と provenance の同期
-- submission の `cancel_token`、独立した training response、`cancelling`、
-  `cancelled` を生成 DTO と契約テストへ反映
-- 次の transport 段階に必要な wire contract の確定
+- `HttpClient` による submit、train、cancel、明示的 result refresh
+- `ClientWebSocket` による接続直後の snapshot と status event の監視
+- 接続失敗、切断、無通信時だけの HTTP result 照合
+- 上限付き指数 backoff と、ローカル `CancellationToken` による監視停止
+- public GCS artifact の URL 解決と、一時ファイルを使う stream download
+- fake HTTP / WebSocket による transport 単体テスト
 
-HTTP、WebSocket、成果物ダウンロードの実装と、`EmbodiedLabJob` facade の追加は
-後続 Issue とする。Unity Editor は CI や EmbodiedLab の実行基盤へ追加しない。
+公開 `EmbodiedLabJob` facade と EnvForge の呼び出し置換は後続 Issue とする。
+Unity Editor は CI や EmbodiedLab の実行基盤へ追加しない。
 
 ## 次の段階
 
@@ -145,6 +153,12 @@ ruff check Tools~/contract_schemas.py Tools~/run_unity_tests.py Tools~/tests
 ruff format --check Tools~/contract_schemas.py Tools~/run_unity_tests.py Tools~/tests
 dotnet format Tools~/ContractCodeGen/ContractCodeGen.csproj --verify-no-changes
 dotnet format Tools~/ContractTests/ContractTests.csproj --verify-no-changes
+dotnet build Tools~/TransportCompatibility/TransportCompatibility.csproj \
+  --configuration Release
+dotnet format Tools~/TransportCompatibility/TransportCompatibility.csproj --verify-no-changes
+dotnet run --project Tools~/TransportTests/TransportTests.csproj \
+  --configuration Release
+dotnet format Tools~/TransportTests/TransportTests.csproj --verify-no-changes
 python3 Tools~/run_unity_tests.py --unity-editor <path-to-unity-6000.3.11f1>
 git diff --check
 ```
