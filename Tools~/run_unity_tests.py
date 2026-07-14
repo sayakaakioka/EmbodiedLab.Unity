@@ -99,6 +99,15 @@ def main() -> int:
         "-logFile",
         str(log_path),
     ]
+    try:
+        results_path.unlink(missing_ok=True)
+    except OSError as error:
+        print(
+            f"Could not remove existing Unity test results: {error}",
+            file=sys.stderr,
+        )
+        return 1
+
     completed = subprocess.run(command, check=False)
     if completed.returncode != 0:
         print(
