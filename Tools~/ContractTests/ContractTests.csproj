@@ -9,6 +9,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(GeneratedContractsFile)" Link="Generated/EmbodiedLabContracts.g.cs" />
+    <Compile Include="../../Runtime/EmbodiedLabReplay.cs" Link="Runtime/EmbodiedLabReplay.cs" />
+    <Compile Include="../../Runtime/ScenarioBundleJson.cs" Link="Runtime/ScenarioBundleJson.cs" />
     <Compile Include="../../Tests/Editor/ContractJsonAssertions.cs" Link="ContractJsonAssertions.cs" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
   </ItemGroup>

@@ -16,6 +16,8 @@ REQUIRED_TEST_NAMES = frozenset(
         "EmbodiedLab.Unity.Tests.ContractRoundTripTests.ReplayLogContainsTwoRoundTrippableSteps",
         "EmbodiedLab.Unity.Tests.ContractRoundTripTests.ResultDocumentAndResultBundleRoundTrip",
         "EmbodiedLab.Unity.Tests.ContractRoundTripTests.ScenarioBundleRoundTripPreservesConcreteTypes",
+        "EmbodiedLab.Unity.Tests.ContractRoundTripTests.ScenarioBundleJsonRoundTripsCanonicalScenario",
+        "EmbodiedLab.Unity.Tests.ContractRoundTripTests.ReplayReadersHandlePlainAndCompressedLogs",
         "EmbodiedLab.Unity.Tests.EmbodiedLabJobTests.RestorePreservesCancellationCapability",
     }
 )

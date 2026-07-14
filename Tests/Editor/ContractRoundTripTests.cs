@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using EmbodiedLab.Contracts;
 using Newtonsoft.Json;
@@ -78,6 +79,60 @@ namespace EmbodiedLab.Unity.Tests
             }
 
             Assert.That(replayCount, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void ScenarioBundleJsonRoundTripsCanonicalScenario()
+        {
+            ScenarioBundle scenario = ScenarioBundleJson.Deserialize(
+                ReadFixture("navigation_default_scenario_bundle.json"));
+            string json = ScenarioBundleJson.Serialize(scenario, indented: true);
+            ScenarioBundle reparsed = ScenarioBundleJson.Deserialize(json);
+
+            Assert.That(reparsed.ScenarioId, Is.EqualTo("navigation_default"));
+            AssertTypes(
+                reparsed.Sensors,
+                typeof(ForwardCameraSensor),
+                typeof(DistanceSensor));
+        }
+
+        [Test]
+        public void ReplayReadersHandlePlainAndCompressedLogs()
+        {
+            ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(
+                Path.Combine(
+                    FixtureDirectory,
+                    "navigation_replay_bundle_manifest.json"));
+            Assert.That(manifest.Chunks, Has.Count.EqualTo(2));
+
+            string replayPath = Path.Combine(
+                FixtureDirectory,
+                "navigation_default_replay_log.jsonl");
+            Assert.That(EmbodiedLabReplay.ReadSteps(replayPath), Has.Count.EqualTo(2));
+            Assert.That(
+                EmbodiedLabReplay.ParseSteps(File.ReadAllText(replayPath)),
+                Has.Count.EqualTo(2));
+
+            string gzipPath = Path.Combine(
+                Path.GetTempPath(),
+                $"embodiedlab-replay-{Guid.NewGuid():N}.jsonl.gz");
+            try
+            {
+                using (var file = File.Create(gzipPath))
+                using (var gzip = new GZipStream(file, CompressionMode.Compress))
+                using (var writer = new StreamWriter(gzip))
+                {
+                    writer.Write(File.ReadAllText(replayPath));
+                }
+
+                Assert.That(
+                    EmbodiedLabReplay.ReadSteps(gzipPath),
+                    Has.Count.EqualTo(2));
+            }
+            finally
+            {
+                File.Delete(gzipPath);
+            }
         }
 
         private static string FixtureDirectory

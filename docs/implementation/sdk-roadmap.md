@@ -2,9 +2,10 @@
 
 ## 現在のフェーズ
 
-キャンセル可能な v0 契約の同期と WebSocket 優先の内部 transport は完了した。
-現在は固定環境の submit、監視、キャンセル、成果物取得を、状態を持つ最小の
-`EmbodiedLabJob` 公開 facade として提供する段階にある。
+キャンセル可能な v0 契約、WebSocket 優先の内部 transport、状態を持つ
+`EmbodiedLabJob` facade、用途別の最小シナリオ／リプレイ API は完了した。
+現在は EnvForge をこの SDK へ移行し、重複する通信、契約 DTO、シリアライズ、
+リプレイ取得コードを削除する段階にある。
 
 ## 合意済みの設計
 
@@ -129,7 +130,30 @@
 - 一時ファイルを使った public GCS artifact の stream download
 - fake HTTP / WebSocket による 8 つの transport 振る舞いテスト
 
-## このフェーズのスコープ
+### 状態を持つジョブ facade
+
+[EmbodiedLab.Unity #13](https://github.com/sayakaakioka/EmbodiedLab.Unity/pull/13)
+で以下を完了した。
+
+- submit と train を一つの操作として開始する `EmbodiedLabJob.SubmitAsync`
+- submission ID と capability token からの `Restore`
+- WebSocket 優先の完了待機、明示更新、cloud cancel
+- Unity main context 上の Result 更新 event
+- Replay Bundle manifest と学習済み model の download
+- .NET compatibility build、fake transport、Unity Editor test
+
+### 用途別のシナリオ永続化／リプレイ API
+
+[EmbodiedLab.Unity #14](https://github.com/sayakaakioka/EmbodiedLab.Unity/issues/14)
+で以下を固定した。
+
+- `ScenarioBundleJson` による契約型を保った保存と復元
+- `EmbodiedLabReplay` による manifest、JSONL、JSONL.GZ の読み込み
+- manifest を起点とした `EmbodiedLabJob.DownloadReplayChunkAsync` の遅延取得
+- 汎用 JSON／artifact API や Replay Bundle の一括 download は追加しない
+- canonical fixture、gzip、相対 chunk path の回帰テスト
+
+## 完了した SDK スコープ
 
 - API と WebSocket の base URL だけを持つ `EmbodiedLabEndpoints`
 - submit と train を一つの操作として開始する `EmbodiedLabJob.SubmitAsync`
@@ -138,6 +162,8 @@
 - cloud job を停止する `CancelAsync`
 - Result Document の最新状態と Unity main context 上の更新 event
 - Replay Bundle manifest と学習済み ONNX model の download
+- シナリオの保存／復元、Replay manifest／step の読み込み
+- 選択した Replay chunk の遅延 download
 - facade の Unity Editor test と .NET compatibility / behavior test
 
 ローカル履歴の保存方法と Editor UI は EnvForge に残す。Unity Editor は CI や
@@ -145,9 +171,8 @@ EmbodiedLab の実行基盤へ追加しない。
 
 ## 次の段階
 
-1. 合意済みの `EmbodiedLabJob` facade を最小の公開 API として追加する。
-2. EnvForge を SDK 利用へ移行し、既存動作を回帰テストで確認する。
-3. 固定モードと 4 分割壁パーツ生成モードの選択を追加する。
+1. EnvForge を SDK 利用へ移行し、既存動作を回帰テストで確認する。
+2. 固定モードと 4 分割壁パーツ生成モードの選択を追加する。
 
 各段階を一つの Issue と小さな PR に分け、テストと lint が通った状態で次へ進む。
 

@@ -18,6 +18,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Artifact download", TestArtifactDownloadAsync),
     ("Stateful facade", TestStatefulFacadeAsync),
     ("Facade model selection", TestFacadeModelSelectionAsync),
+    ("Facade replay chunk", TestFacadeReplayChunkAsync),
     ("Single completion monitor", TestConcurrentCompletionMonitorIsRejectedAsync),
 };
 
@@ -349,6 +350,81 @@ static async Task TestFacadeModelSelectionAsync()
         await job.RefreshAsync();
         await job.DownloadModelAsync(destination);
         AssertSequence(expected, await File.ReadAllBytesAsync(destination), "facade model bytes");
+    }
+    finally
+    {
+        if (Directory.Exists(directory))
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+}
+
+static async Task TestFacadeReplayChunkAsync()
+{
+    byte[] expected = Encoding.UTF8.GetBytes("compressed replay");
+    var handler = new RecordingHttpHandler(request =>
+    {
+        if (request.Uri.AbsolutePath.EndsWith("/results/submission-1", StringComparison.Ordinal))
+        {
+            return JsonResponse(
+                ResultJson(
+                    "completed",
+                    """
+                    ,"artifacts":{
+                      "replay_bundle":{
+                        "storage":"gcs",
+                        "bucket":"replays",
+                        "path":"results/submission-1/replay/manifest.json",
+                        "format":"json"
+                      }
+                    }
+                    """));
+        }
+
+        AssertEqual(
+            "https://storage.googleapis.com/replays/results/submission-1/replay/eval/checkpoint_00005000.jsonl.gz",
+            request.Uri.AbsoluteUri,
+            "facade replay chunk URI");
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(expected),
+        };
+    });
+    using var job = new EmbodiedLabJob(
+        CreateTransport(handler, new QueueWebSocketFactory()),
+        "submission-1",
+        "capability-1",
+        synchronizationContext: null);
+    string directory = Path.Combine(Path.GetTempPath(), $"embodiedlab-job-{Guid.NewGuid():N}");
+    string destination = Path.Combine(directory, "checkpoint.jsonl.gz");
+
+    try
+    {
+        await job.RefreshAsync();
+        var chunk = new ReplayBundleChunk
+        {
+            Path = "eval/checkpoint_00005000.jsonl.gz",
+            Format = ReplayBundleChunkFormat.JsonlGz,
+        };
+        await job.DownloadReplayChunkAsync(chunk, destination);
+        AssertSequence(
+            expected,
+            await File.ReadAllBytesAsync(destination),
+            "facade replay chunk bytes");
+
+        bool traversalRejected = false;
+        try
+        {
+            chunk.Path = "../other-job/chunk.jsonl.gz";
+            await job.DownloadReplayChunkAsync(chunk, destination);
+        }
+        catch (ArgumentException)
+        {
+            traversalRejected = true;
+        }
+
+        AssertEqual(true, traversalRejected, "replay chunk traversal rejection");
     }
     finally
     {
