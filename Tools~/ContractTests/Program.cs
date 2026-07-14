@@ -1,16 +1,23 @@
 using EmbodiedLab.Contracts;
+using EmbodiedLab.Unity.Tests;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 var fixtureDirectory = args.Length == 1
     ? Path.GetFullPath(args[0])
     : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../Tests~/Fixtures"));
+var schemaDirectory = Path.GetFullPath(
+    Path.Combine(fixtureDirectory, "../../Schemas~/v0"));
 
 var scenario = RoundTrip<ScenarioBundle>(
     "navigation_default_scenario_bundle.json",
-    "scenario-bundle.v0");
-RoundTrip<ResultDocument>("navigation_completed_result_document.json", "result-bundle.v0");
-RoundTrip<ReplayBundleManifest>("navigation_replay_bundle_manifest.json", "jsonl.gz");
+    "scenario-bundle.schema.json");
+RoundTrip<ResultDocument>(
+    "navigation_completed_result_document.json",
+    "result-document.schema.json");
+RoundTrip<ReplayBundleManifest>(
+    "navigation_replay_bundle_manifest.json",
+    "replay-bundle-manifest.schema.json");
 
 AssertTypes(
     scenario.Sensors,
@@ -25,36 +32,41 @@ AssertTypes(
 _ = nameof(WorldSpec.StaticObstacles);
 _ = nameof(ScenarioBundle.SchemaVersion);
 _ = ArtifactFormat.JsonlGz;
+AssertSchemaDefaultValidation();
 
 var resultDocument = JObject.Parse(ReadFixture("navigation_completed_result_document.json"));
-RoundTripJson<ResultBundle>(resultDocument["result_bundle"]!.ToString(), "result-bundle.v0");
+RoundTripJson<ResultBundle>(
+    resultDocument["result_bundle"]!.ToString(),
+    "result-bundle.schema.json");
 RoundTripJson<SubmissionResponse>(
     """{"submission_id":"submission-1","status":"accepted"}""",
-    "accepted");
+    "submission-response.schema.json");
 
 var replayLines = File.ReadLines(Path.Combine(fixtureDirectory, "navigation_default_replay_log.jsonl"));
 var replayCount = 0;
 foreach (var line in replayLines)
 {
-    RoundTripJson<ReplayLogStep>(line, "replay-log.v0");
+    RoundTripJson<ReplayLogStep>(line, "replay-log-step.schema.json");
     replayCount++;
 }
 
-if (replayCount == 0)
+if (replayCount != 2)
 {
-    throw new InvalidOperationException("The replay fixture must contain at least one step.");
+    throw new InvalidOperationException(
+        $"The replay fixture must contain exactly two steps, but contained {replayCount}.");
 }
 
 Console.WriteLine($"Validated canonical contracts and {replayCount} replay steps.");
 return 0;
 
-T RoundTrip<T>(string filename, string expectedWireValue)
+T RoundTrip<T>(string filename, string schemaFilename)
 {
-    return RoundTripJson<T>(ReadFixture(filename), expectedWireValue);
+    return RoundTripJson<T>(ReadFixture(filename), schemaFilename);
 }
 
-T RoundTripJson<T>(string json, string expectedWireValue)
+T RoundTripJson<T>(string json, string schemaFilename)
 {
+    var expectedJson = JToken.Parse(json);
     var settings = new JsonSerializerSettings
     {
         MissingMemberHandling = MissingMemberHandling.Error,
@@ -62,11 +74,12 @@ T RoundTripJson<T>(string json, string expectedWireValue)
     var value = JsonConvert.DeserializeObject<T>(json, settings)
         ?? throw new InvalidOperationException($"Could not deserialize {typeof(T).Name}.");
     var serialized = JsonConvert.SerializeObject(value);
-    if (!serialized.Contains(expectedWireValue, StringComparison.Ordinal))
-    {
-        throw new InvalidOperationException(
-            $"{typeof(T).Name} did not preserve wire value '{expectedWireValue}'.");
-    }
+    var actualJson = JToken.Parse(serialized);
+    ContractJsonAssertions.AssertPreserved(
+        expectedJson,
+        actualJson,
+        JObject.Parse(ReadSchema(schemaFilename)),
+        typeof(T).Name);
 
     return JsonConvert.DeserializeObject<T>(serialized, settings)
         ?? throw new InvalidOperationException($"Could not deserialize round-tripped {typeof(T).Name}.");
@@ -86,4 +99,50 @@ void AssertTypes<T>(IEnumerable<T> values, params Type[] expectedTypes)
 string ReadFixture(string filename)
 {
     return File.ReadAllText(Path.Combine(fixtureDirectory, filename));
+}
+
+string ReadSchema(string filename)
+{
+    return File.ReadAllText(Path.Combine(schemaDirectory, filename));
+}
+
+void AssertSchemaDefaultValidation()
+{
+    var expected = JObject.Parse("{}");
+    var schema = JObject.Parse(
+        """{"type":"object","additionalProperties":false,"properties":{"count":{"type":"integer","default":1}}}""");
+    ContractJsonAssertions.AssertPreserved(
+        expected,
+        JObject.Parse("""{"count":1}"""),
+        schema,
+        "SchemaDefaultProbe");
+    AssertRejected(
+        () => ContractJsonAssertions.AssertPreserved(
+            expected,
+            JObject.Parse("""{"count":2}"""),
+            schema,
+            "SchemaDefaultProbe"),
+        "a value that differs from the canonical schema default");
+    AssertRejected(
+        () => ContractJsonAssertions.AssertPreserved(
+            expected,
+            JObject.Parse("""{"unknown":1}"""),
+            schema,
+            "SchemaDefaultProbe"),
+        "an undeclared property");
+}
+
+void AssertRejected(Action action, string description)
+{
+    try
+    {
+        action();
+    }
+    catch (InvalidOperationException)
+    {
+        return;
+    }
+
+    throw new InvalidOperationException(
+        $"Canonical JSON validation accepted {description}.");
 }

@@ -23,7 +23,7 @@ namespace EmbodiedLab.Unity.Tests
         {
             var scenario = RoundTrip<ScenarioBundle>(
                 "navigation_default_scenario_bundle.json",
-                "scenario-bundle.v0");
+                "scenario-bundle.schema.json");
 
             AssertTypes(
                 scenario.Sensors,
@@ -42,14 +42,16 @@ namespace EmbodiedLab.Unity.Tests
         {
             var resultDocument = RoundTrip<ResultDocument>(
                 "navigation_completed_result_document.json",
-                "result-bundle.v0");
+                "result-document.schema.json");
             Assert.That(resultDocument.ResultBundle, Is.Not.Null);
 
             var documentJson = JObject.Parse(
                 ReadFixture("navigation_completed_result_document.json"));
             var resultBundleJson = documentJson["result_bundle"]?.ToString();
             Assert.That(resultBundleJson, Is.Not.Null);
-            RoundTripJson<ResultBundle>(resultBundleJson, "result-bundle.v0");
+            RoundTripJson<ResultBundle>(
+                resultBundleJson,
+                "result-bundle.schema.json");
         }
 
         [Test]
@@ -57,7 +59,7 @@ namespace EmbodiedLab.Unity.Tests
         {
             RoundTrip<ReplayBundleManifest>(
                 "navigation_replay_bundle_manifest.json",
-                "jsonl.gz");
+                "replay-bundle-manifest.schema.json");
         }
 
         [Test]
@@ -69,7 +71,9 @@ namespace EmbodiedLab.Unity.Tests
             var replayCount = 0;
             foreach (var line in File.ReadLines(replayPath))
             {
-                RoundTripJson<ReplayLogStep>(line, "replay-log.v0");
+                RoundTripJson<ReplayLogStep>(
+                    line,
+                    "replay-log-step.schema.json");
                 replayCount++;
             }
 
@@ -102,18 +106,24 @@ namespace EmbodiedLab.Unity.Tests
             }
         }
 
-        private static T RoundTrip<T>(string filename, string expectedWireValue)
+        private static T RoundTrip<T>(string filename, string schemaFilename)
         {
-            return RoundTripJson<T>(ReadFixture(filename), expectedWireValue);
+            return RoundTripJson<T>(ReadFixture(filename), schemaFilename);
         }
 
-        private static T RoundTripJson<T>(string json, string expectedWireValue)
+        private static T RoundTripJson<T>(string json, string schemaFilename)
         {
+            var expectedJson = JToken.Parse(json);
             var value = JsonConvert.DeserializeObject<T>(json, SerializerSettings);
             Assert.That(value, Is.Not.Null, $"Could not deserialize {typeof(T).Name}.");
 
             var serialized = JsonConvert.SerializeObject(value);
-            StringAssert.Contains(expectedWireValue, serialized);
+            var actualJson = JToken.Parse(serialized);
+            ContractJsonAssertions.AssertPreserved(
+                expectedJson,
+                actualJson,
+                JObject.Parse(ReadSchema(schemaFilename)),
+                typeof(T).Name);
 
             var roundTripped = JsonConvert.DeserializeObject<T>(
                 serialized,
@@ -136,6 +146,19 @@ namespace EmbodiedLab.Unity.Tests
         private static string ReadFixture(string filename)
         {
             return File.ReadAllText(Path.Combine(FixtureDirectory, filename));
+        }
+
+        private static string ReadSchema(string filename)
+        {
+            var schemaPath = Path.GetFullPath(
+                Path.Combine(
+                    FixtureDirectory,
+                    "..",
+                    "..",
+                    "Schemas~",
+                    "v0",
+                    filename));
+            return File.ReadAllText(schemaPath);
         }
     }
 }
