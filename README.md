@@ -9,7 +9,7 @@ downloading results, replays, and trained models.
 
 ## Scope
 
-This repository will provide the reusable Unity-side cloud job functionality
+This repository provides the reusable Unity-side cloud job functionality
 shared by EnvForge and custom Unity frontends. The first supported workflow is:
 
 - submit a fixed-environment training job;
@@ -37,18 +37,94 @@ https://github.com/sayakaakioka/EmbodiedLab.Unity.git
 
 The package identifier is `com.embodiedlab.unity`.
 
+## Quick start
+
+Create the deployment endpoints once, build a contract `ScenarioBundle`, and
+submit it through the stateful job handle:
+
+```csharp
+using System.IO;
+using System.Threading;
+using EmbodiedLab.Contracts;
+using EmbodiedLab.Unity;
+using UnityEngine;
+
+public async Awaitable RunTrainingAsync(
+    ScenarioBundle scenario,
+    CancellationToken cancellationToken)
+{
+    var endpoints = new EmbodiedLabEndpoints(
+        "https://api.example.com/",
+        "wss://results.example.com/");
+
+    using EmbodiedLabJob job = await EmbodiedLabJob.SubmitAsync(
+        endpoints,
+        scenario,
+        cancellationToken);
+    job.ResultUpdated += result =>
+        Debug.Log($"{result.Status}: {result.Progress?.CurrentStep}");
+
+    ResultDocument result = await job.WaitForCompletionAsync(cancellationToken);
+    if (result.Status != ResultStatus.Completed)
+    {
+        return;
+    }
+
+    string outputDirectory = Path.Combine(Application.persistentDataPath, "job-1");
+    await job.DownloadReplayBundleAsync(
+        Path.Combine(outputDirectory, "replay", "manifest.json"),
+        cancellationToken);
+    await job.DownloadModelAsync(
+        Path.Combine(outputDirectory, "policy.onnx"),
+        cancellationToken);
+}
+```
+
+`SubmitAsync` creates the submission and starts training. Result monitoring uses
+the WebSocket stream while it is healthy; HTTP result reads are reserved for
+explicit `RefreshAsync` calls and recovery after a failed, disconnected, or
+silent stream. `ResultUpdated` is dispatched through the synchronization
+context captured when the job handle is created, which is normally Unity's main
+thread context.
+
+The replay-bundle artifact currently points to its manifest, so
+`DownloadReplayBundleAsync` saves that manifest. `DownloadModelAsync` selects
+`onnx_model` first, then the Unity Sentis model, then the generic model artifact.
+
+Persist both `SubmissionId` and `CancelToken` if a job must survive an Editor or
+application restart:
+
+```csharp
+EmbodiedLabJob restored = EmbodiedLabJob.Restore(
+    endpoints,
+    savedSubmissionId,
+    savedCancelToken);
+```
+
+The cancellation token returned by the server is a capability: store it as a
+secret and do not log it. Restoring without it still permits monitoring and
+downloads, but `CanCancel` is false. A C# `CancellationToken` only stops the
+local SDK operation. Call `CancelAsync` to request cancellation of the cloud
+job.
+
 ## Development
 
 The implementation is intentionally incremental. EmbodiedLab publishes the
 versioned JSON Schemas, this repository generates and commits matching C# DTOs,
-and handwritten Unity APIs are added only for current use cases.
+and handwritten Unity APIs are added only for current use cases. The public
+surface is the generated contracts plus `EmbodiedLabEndpoints` and
+`EmbodiedLabJob`; HTTP and WebSocket transport types remain internal.
 
 The contract generator requires Python 3 and the .NET 8 SDK. To regenerate the
 DTOs from the committed schemas:
 
 ```bash
-python3 Tools~/contract_schemas.py normalize --output /tmp/embodiedlab-contracts.schema.json
-dotnet run --project Tools~/ContractCodeGen/ContractCodeGen.csproj --configuration Release -- /tmp/embodiedlab-contracts.schema.json Runtime/Contracts/EmbodiedLabContracts.g.cs
+python3 Tools~/contract_schemas.py normalize \
+  --output /tmp/embodiedlab-contracts.schema.json
+dotnet run --project Tools~/ContractCodeGen/ContractCodeGen.csproj \
+  --configuration Release -- \
+  /tmp/embodiedlab-contracts.schema.json \
+  Runtime/Contracts/EmbodiedLabContracts.g.cs
 ```
 
 `Schemas~/upstream.json` records the exact EmbodiedLab commit and SHA-256 hash

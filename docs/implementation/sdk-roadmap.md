@@ -2,9 +2,9 @@
 
 ## 現在のフェーズ
 
-キャンセル可能な v0 契約の同期は完了した。現在は固定環境の submit、監視、
-キャンセル、成果物取得を、合意済みの WebSocket 優先方針で内部 transport
-として切り出す段階にある。
+キャンセル可能な v0 契約の同期と WebSocket 優先の内部 transport は完了した。
+現在は固定環境の submit、監視、キャンセル、成果物取得を、状態を持つ最小の
+`EmbodiedLabJob` 公開 facade として提供する段階にある。
 
 ## 合意済みの設計
 
@@ -117,24 +117,37 @@
   `cancelled` の生成 DTO への反映
 - Python、.NET、CI による schema、response、生成差分の検証
 
-## このフェーズのスコープ
+### WebSocket 優先の内部 transport
+
+[EmbodiedLab.Unity #11](https://github.com/sayakaakioka/EmbodiedLab.Unity/pull/11)
+で以下を完了した。
 
 - `HttpClient` による submit、train、cancel、明示的 result refresh
-- `ClientWebSocket` による接続直後の snapshot と status event の監視
+- `ClientWebSocket` による snapshot と status event の監視
 - 接続失敗、切断、無通信時だけの HTTP result 照合
-- 上限付き指数 backoff と、ローカル `CancellationToken` による監視停止
-- public GCS artifact の URL 解決と、一時ファイルを使う stream download
-- fake HTTP / WebSocket による transport 単体テスト
+- 上限付き指数 backoff とローカル `CancellationToken` による監視停止
+- 一時ファイルを使った public GCS artifact の stream download
+- fake HTTP / WebSocket による 8 つの transport 振る舞いテスト
 
-公開 `EmbodiedLabJob` facade と EnvForge の呼び出し置換は後続 Issue とする。
-Unity Editor は CI や EmbodiedLab の実行基盤へ追加しない。
+## このフェーズのスコープ
+
+- API と WebSocket の base URL だけを持つ `EmbodiedLabEndpoints`
+- submit と train を一つの操作として開始する `EmbodiedLabJob.SubmitAsync`
+- submission ID と任意の capability token からの `Restore`
+- WebSocket 優先の `WaitForCompletionAsync` と明示的な `RefreshAsync`
+- cloud job を停止する `CancelAsync`
+- Result Document の最新状態と Unity main context 上の更新 event
+- Replay Bundle manifest と学習済み ONNX model の download
+- facade の Unity Editor test と .NET compatibility / behavior test
+
+ローカル履歴の保存方法と Editor UI は EnvForge に残す。Unity Editor は CI や
+EmbodiedLab の実行基盤へ追加しない。
 
 ## 次の段階
 
-1. 固定環境の submit、監視、成果物取得を内部 transport として切り出す。
-2. 合意済みの `EmbodiedLabJob` facade を最小の公開 API として追加する。
-3. EnvForge を SDK 利用へ移行し、既存動作を回帰テストで確認する。
-4. 固定モードと 4 分割壁パーツ生成モードの選択を追加する。
+1. 合意済みの `EmbodiedLabJob` facade を最小の公開 API として追加する。
+2. EnvForge を SDK 利用へ移行し、既存動作を回帰テストで確認する。
+3. 固定モードと 4 分割壁パーツ生成モードの選択を追加する。
 
 各段階を一つの Issue と小さな PR に分け、テストと lint が通った状態で次へ進む。
 

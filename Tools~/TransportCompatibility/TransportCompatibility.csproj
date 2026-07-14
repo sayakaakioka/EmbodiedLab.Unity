@@ -7,7 +7,10 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../Runtime/Contracts/EmbodiedLabContracts.g.cs" Link="Generated/EmbodiedLabContracts.g.cs" />
+    <Compile Include="../../Runtime/EmbodiedLabEndpoints.cs" Link="Runtime/EmbodiedLabEndpoints.cs" />
+    <Compile Include="../../Runtime/EmbodiedLabJob.cs" Link="Runtime/EmbodiedLabJob.cs" />
     <Compile Include="../../Runtime/Transport/*.cs" Link="Transport/%(Filename)%(Extension)" />
+    <Compile Include="../UnityEngineShim/Awaitable.cs" Link="UnityEngine/Awaitable.cs" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
   </ItemGroup>
 </Project>
