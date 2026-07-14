@@ -22,8 +22,8 @@ jobs:
       - name: Validate schema tooling
         run: |
           python3 -m pip install ruff==0.15.21
-          ruff check Tools~/contract_schemas.py Tools~/tests
-          ruff format --check Tools~/contract_schemas.py Tools~/tests
+          ruff check Tools~/contract_schemas.py Tools~/run_unity_tests.py Tools~/tests
+          ruff format --check Tools~/contract_schemas.py Tools~/run_unity_tests.py Tools~/tests
           python3 -m unittest discover -s Tools~/tests -p 'test_*.py'
 
       - name: Validate JSON files

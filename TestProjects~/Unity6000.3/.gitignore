@@ -1,0 +1,9 @@
+/Library/
+/Logs/
+/Obj/
+/Temp/
+/TestResults/
+/UserSettings/
+/ProjectSettings/*
+!/ProjectSettings/ProjectVersion.txt
+/Assets/.gitkeep.meta

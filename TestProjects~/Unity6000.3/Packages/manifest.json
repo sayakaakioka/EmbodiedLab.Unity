@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "com.embodiedlab.unity": "file:../../..",
+    "com.unity.test-framework": "1.6.0"
+  },
+  "testables": [
+    "com.embodiedlab.unity"
+  ]
+}
