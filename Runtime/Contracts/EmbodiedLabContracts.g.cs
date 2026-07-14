@@ -829,12 +829,20 @@ namespace EmbodiedLab.Contracts
         Running = 2,
 
 
+        [System.Runtime.Serialization.EnumMember(Value = @"cancelling")]
+        Cancelling = 3,
+
+
+        [System.Runtime.Serialization.EnumMember(Value = @"cancelled")]
+        Cancelled = 4,
+
+
         [System.Runtime.Serialization.EnumMember(Value = @"completed")]
-        Completed = 3,
+        Completed = 5,
 
 
         [System.Runtime.Serialization.EnumMember(Value = @"failed")]
-        Failed = 4,
+        Failed = 6,
 
 
     }
@@ -1037,11 +1045,14 @@ namespace EmbodiedLab.Contracts
     }
 
     /// <summary>
-    /// Response returned after accepting a submission or training request.
+    /// Response returned after accepting a new submission.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public partial class SubmissionResponse
     {
+
+        [Newtonsoft.Json.JsonProperty("cancel_token", Required = Newtonsoft.Json.Required.Always)]
+        public string CancelToken { get; set; }
 
         [Newtonsoft.Json.JsonProperty("status", Required = Newtonsoft.Json.Required.Always)]
         [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
@@ -1077,6 +1088,22 @@ namespace EmbodiedLab.Contracts
         [System.Runtime.Serialization.EnumMember(Value = @"ppo")]
         Ppo = 0,
 
+
+    }
+
+    /// <summary>
+    /// Response returned after accepting a training request.
+    /// </summary>
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public partial class TrainingResponse
+    {
+
+        [Newtonsoft.Json.JsonProperty("status", Required = Newtonsoft.Json.Required.Always)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public TrainingResponseStatus Status { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("submission_id", Required = Newtonsoft.Json.Required.Always)]
+        public string SubmissionId { get; set; }
 
     }
 
@@ -1285,6 +1312,16 @@ namespace EmbodiedLab.Contracts
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public enum SubmissionResponseStatus
+    {
+
+        [System.Runtime.Serialization.EnumMember(Value = @"accepted")]
+        Accepted = 0,
+
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public enum TrainingResponseStatus
     {
 
         [System.Runtime.Serialization.EnumMember(Value = @"accepted")]

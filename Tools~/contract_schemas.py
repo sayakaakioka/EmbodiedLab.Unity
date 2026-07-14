@@ -23,6 +23,7 @@ EXPECTED_SCHEMAS = {
     "result-document.schema.json": "ResultDocument",
     "scenario-bundle.schema.json": "ScenarioBundle",
     "submission-response.schema.json": "SubmissionResponse",
+    "training-response.schema.json": "TrainingResponse",
 }
 UNSUPPORTED_KEYWORDS = {
     "$dynamicAnchor",

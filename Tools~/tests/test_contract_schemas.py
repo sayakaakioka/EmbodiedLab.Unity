@@ -41,6 +41,22 @@ class ContractSchemaTests(unittest.TestCase):
         self.assertIn("ReplayLogStep", first["definitions"])
         self.assertIn("ResultDocument", first["definitions"])
         self.assertIn("ScenarioBundle", first["definitions"])
+        self.assertIn("TrainingResponse", first["definitions"])
+
+        submission_response = first["definitions"]["SubmissionResponse"]
+        self.assertIn("cancel_token", submission_response["required"])
+        self.assertEqual(
+            [
+                "queued",
+                "starting",
+                "running",
+                "cancelling",
+                "cancelled",
+                "completed",
+                "failed",
+            ],
+            first["definitions"]["ResultStatus"]["enum"],
+        )
 
         schema_version = first["definitions"]["ScenarioBundle"]["properties"][
             "schema_version"

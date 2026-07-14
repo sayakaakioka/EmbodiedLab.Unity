@@ -39,8 +39,13 @@ RoundTripJson<ResultBundle>(
     resultDocument["result_bundle"]!.ToString(),
     "result-bundle.schema.json");
 RoundTripJson<SubmissionResponse>(
-    """{"submission_id":"submission-1","status":"accepted"}""",
+    """{"cancel_token":"cancel-token-1","submission_id":"submission-1","status":"accepted"}""",
     "submission-response.schema.json");
+RoundTripJson<TrainingResponse>(
+    """{"submission_id":"submission-1","status":"accepted"}""",
+    "training-response.schema.json");
+_ = ResultStatus.Cancelling;
+_ = ResultStatus.Cancelled;
 
 var replayLines = File.ReadLines(Path.Combine(fixtureDirectory, "navigation_default_replay_log.jsonl"));
 var replayCount = 0;
