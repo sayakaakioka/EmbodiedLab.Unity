@@ -91,6 +91,40 @@ The replay-bundle artifact currently points to its manifest, so
 `DownloadReplayBundleAsync` saves that manifest. `DownloadModelAsync` selects
 `onnx_model` first, then the Unity Sentis model, then the generic model artifact.
 
+Read a saved scenario with the generated concrete sensor and reward types intact:
+
+```csharp
+string scenarioJson = ScenarioBundleJson.Serialize(scenario, indented: true);
+ScenarioBundle restoredScenario = ScenarioBundleJson.Deserialize(scenarioJson);
+```
+
+Replay bundles remain lazy. Download and read the manifest first, then download
+only the selected compressed chunk:
+
+```csharp
+string manifestPath = Path.Combine(
+    outputDirectory,
+    "replay",
+    "manifest.json");
+ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(manifestPath);
+ReplayBundleChunk selectedChunk = manifest.Chunks.First();
+string replayChunkPath = Path.Combine(
+    outputDirectory,
+    "replay",
+    selectedChunk.Path);
+
+await job.DownloadReplayChunkAsync(
+    selectedChunk,
+    replayChunkPath,
+    cancellationToken);
+IReadOnlyList<ReplayLogStep> steps =
+    EmbodiedLabReplay.ReadSteps(replayChunkPath);
+```
+
+Add `System.Collections.Generic` and `System.Linq` for the collection types and
+`First` call in this example. `EmbodiedLabReplay.ParseSteps` reads bundled or
+otherwise in-memory JSON Lines without creating a temporary file.
+
 Persist both `SubmissionId` and `CancelToken` if a job must survive an Editor or
 application restart:
 
@@ -112,8 +146,9 @@ job.
 The implementation is intentionally incremental. EmbodiedLab publishes the
 versioned JSON Schemas, this repository generates and commits matching C# DTOs,
 and handwritten Unity APIs are added only for current use cases. The public
-surface is the generated contracts plus `EmbodiedLabEndpoints` and
-`EmbodiedLabJob`; HTTP and WebSocket transport types remain internal.
+surface is the generated contracts plus `EmbodiedLabEndpoints`,
+`EmbodiedLabJob`, `ScenarioBundleJson`, and `EmbodiedLabReplay`; HTTP and
+WebSocket transport types remain internal.
 
 The contract generator requires Python 3 and the .NET 8 SDK. To regenerate the
 DTOs from the committed schemas:

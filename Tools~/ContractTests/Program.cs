@@ -1,4 +1,6 @@
+using System.IO.Compression;
 using EmbodiedLab.Contracts;
+using EmbodiedLab.Unity;
 using EmbodiedLab.Unity.Tests;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -61,7 +63,11 @@ if (replayCount != 2)
         $"The replay fixture must contain exactly two steps, but contained {replayCount}.");
 }
 
-Console.WriteLine($"Validated canonical contracts and {replayCount} replay steps.");
+ValidatePublicScenarioJson();
+ValidatePublicReplayReaders();
+
+Console.WriteLine(
+    $"Validated canonical contracts, public persistence APIs, and {replayCount} replay steps.");
 return 0;
 
 T RoundTrip<T>(string filename, string schemaFilename)
@@ -135,6 +141,69 @@ void AssertSchemaDefaultValidation()
             schema,
             "SchemaDefaultProbe"),
         "an undeclared property");
+}
+
+void ValidatePublicScenarioJson()
+{
+    string json = ReadFixture("navigation_default_scenario_bundle.json");
+    ScenarioBundle parsed = ScenarioBundleJson.Deserialize(json);
+    if (parsed.ScenarioId != "navigation_default")
+    {
+        throw new InvalidOperationException("ScenarioBundleJson changed the scenario ID.");
+    }
+
+    ScenarioBundle reparsed = ScenarioBundleJson.Deserialize(
+        ScenarioBundleJson.Serialize(parsed, indented: true));
+    AssertTypes(
+        reparsed.Sensors,
+        typeof(ForwardCameraSensor),
+        typeof(DistanceSensor));
+}
+
+void ValidatePublicReplayReaders()
+{
+    ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(
+        Path.Combine(fixtureDirectory, "navigation_replay_bundle_manifest.json"));
+    if (manifest.Chunks.Count != 2)
+    {
+        throw new InvalidOperationException("Replay manifest must contain two chunks.");
+    }
+
+    string replayPath = Path.Combine(
+        fixtureDirectory,
+        "navigation_default_replay_log.jsonl");
+    IReadOnlyList<ReplayLogStep> plainSteps = EmbodiedLabReplay.ReadSteps(replayPath);
+    IReadOnlyList<ReplayLogStep> parsedSteps = EmbodiedLabReplay.ParseSteps(
+        File.ReadAllText(replayPath));
+    if (plainSteps.Count != 2 || parsedSteps.Count != 2)
+    {
+        throw new InvalidOperationException("Replay readers must return two steps.");
+    }
+
+    string gzipPath = Path.Combine(
+        Path.GetTempPath(),
+        $"embodiedlab-replay-{Guid.NewGuid():N}.jsonl.gz");
+    try
+    {
+        using (var file = File.Create(gzipPath))
+        using (var gzip = new GZipStream(file, CompressionMode.Compress))
+        using (var writer = new StreamWriter(gzip))
+        {
+            writer.Write(File.ReadAllText(replayPath));
+        }
+
+        IReadOnlyList<ReplayLogStep> compressedSteps =
+            EmbodiedLabReplay.ReadSteps(gzipPath);
+        if (compressedSteps.Count != 2)
+        {
+            throw new InvalidOperationException(
+                "Compressed replay reader must return two steps.");
+        }
+    }
+    finally
+    {
+        File.Delete(gzipPath);
+    }
 }
 
 void AssertRejected(Action action, string description)

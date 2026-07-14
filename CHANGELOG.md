@@ -17,3 +17,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cancellation, and streamed public-GCS artifact downloads.
 - Stateful `EmbodiedLabJob` Unity API for submit, restore, refresh, monitor,
   cancel, replay-manifest download, and trained-model download.
+- Domain-specific scenario JSON persistence, replay manifest and step readers,
+  and lazy replay chunk downloads.

@@ -235,6 +235,30 @@ namespace EmbodiedLab.Unity
                 operationCancellation.Token);
         }
 
+        public async Awaitable DownloadReplayChunkAsync(
+            ReplayBundleChunk chunk,
+            string destinationPath,
+            CancellationToken cancellationToken = default)
+        {
+            if (chunk == null)
+            {
+                throw new ArgumentNullException(nameof(chunk));
+            }
+
+            ArtifactLocation replayManifest = GetArtifacts().ReplayBundle ??
+                throw new InvalidOperationException(
+                    "The latest result does not contain a replay bundle artifact.");
+            ArtifactLocation chunkArtifact = CreateReplayChunkArtifact(
+                replayManifest,
+                chunk);
+            using CancellationTokenSource operationCancellation =
+                CreateOperationCancellationThreadSafe(cancellationToken);
+            await transport.DownloadArtifactAsync(
+                chunkArtifact,
+                destinationPath,
+                operationCancellation.Token);
+        }
+
         public async Awaitable DownloadModelAsync(
             string destinationPath,
             CancellationToken cancellationToken = default)
@@ -300,6 +324,48 @@ namespace EmbodiedLab.Unity
                 Format = model.Format,
                 Path = model.Path,
                 Storage = model.Storage,
+            };
+        }
+
+        private static ArtifactLocation CreateReplayChunkArtifact(
+            ArtifactLocation replayManifest,
+            ReplayBundleChunk chunk)
+        {
+            string manifestPath = RequireValue(
+                replayManifest.Path,
+                nameof(replayManifest.Path));
+            string chunkPath = RequireValue(chunk.Path, nameof(chunk.Path));
+            if (chunkPath.StartsWith("/", StringComparison.Ordinal) ||
+                chunkPath.Contains("\\") ||
+                chunkPath.Contains("?") ||
+                chunkPath.Contains("#"))
+            {
+                throw new ArgumentException(
+                    "Replay chunk path must be a relative GCS object path.",
+                    nameof(chunk));
+            }
+
+            string[] segments = chunkPath.Split('/');
+            foreach (string segment in segments)
+            {
+                if (segment.Length == 0 || segment == "." || segment == "..")
+                {
+                    throw new ArgumentException(
+                        "Replay chunk path contains an invalid segment.",
+                        nameof(chunk));
+                }
+            }
+
+            int manifestFilenameStart = manifestPath.LastIndexOf('/');
+            string replayDirectory = manifestFilenameStart < 0
+                ? string.Empty
+                : manifestPath.Substring(0, manifestFilenameStart + 1);
+            return new ArtifactLocation
+            {
+                Bucket = replayManifest.Bucket,
+                Format = ArtifactFormat.JsonlGz,
+                Path = replayDirectory + chunkPath,
+                Storage = replayManifest.Storage,
             };
         }
 
