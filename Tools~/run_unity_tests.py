@@ -16,13 +16,14 @@ REQUIRED_TEST_NAMES = frozenset(
         "EmbodiedLab.Unity.Tests.ContractRoundTripTests.ReplayLogContainsTwoRoundTrippableSteps",
         "EmbodiedLab.Unity.Tests.ContractRoundTripTests.ResultDocumentAndResultBundleRoundTrip",
         "EmbodiedLab.Unity.Tests.ContractRoundTripTests.ScenarioBundleRoundTripPreservesConcreteTypes",
+        "EmbodiedLab.Unity.Tests.EmbodiedLabJobTests.RestorePreservesCancellationCapability",
     }
 )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run EmbodiedLab.Unity contract tests in Unity 6000.3."
+        description="Run EmbodiedLab.Unity package tests in Unity 6000.3."
     )
     parser.add_argument(
         "--unity-editor",
@@ -168,7 +169,7 @@ def main() -> int:
         return 1
 
     print(
-        f"Unity contract tests passed: total={total}, failed={failed}, "
+        f"Unity package tests passed: total={total}, failed={failed}, "
         f"results={results_path}"
     )
     return 0

@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.WebSockets;
 using System.Text;
 using EmbodiedLab.Contracts;
+using EmbodiedLab.Unity;
 using EmbodiedLab.Unity.Internal;
 
 var tests = new (string Name, Func<Task> Run)[]
@@ -15,6 +16,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Bounded reconnect", TestReconnectDelayIsBoundedAsync),
     ("Local cancellation", TestLocalCancellationStopsMonitoringAsync),
     ("Artifact download", TestArtifactDownloadAsync),
+    ("Stateful facade", TestStatefulFacadeAsync),
+    ("Facade model selection", TestFacadeModelSelectionAsync),
+    ("Single completion monitor", TestConcurrentCompletionMonitorIsRejectedAsync),
 };
 
 foreach ((string name, Func<Task> run) in tests)
@@ -272,6 +276,129 @@ static async Task TestLocalCancellationStopsMonitoringAsync()
     AssertEqual(true, observedCancellation, "local monitoring cancellation");
 }
 
+static async Task TestStatefulFacadeAsync()
+{
+    var handler = new RecordingHttpHandler(request => request.Uri.AbsolutePath switch
+    {
+        "/root/results/submission-1" => JsonResponse(ResultJson("running")),
+        "/root/submissions/submission-1/cancel" => JsonResponse(
+            ResultJson("cancelled"),
+            HttpStatusCode.Accepted),
+        _ => throw new InvalidOperationException($"Unexpected request: {request.Uri}"),
+    });
+    using var job = new EmbodiedLabJob(
+        CreateTransport(handler, new QueueWebSocketFactory()),
+        "submission-1",
+        "capability-1",
+        synchronizationContext: null);
+    var statuses = new List<ResultStatus>();
+    job.ResultUpdated += result => statuses.Add(result.Status);
+
+    ResultDocument refreshed = await job.RefreshAsync();
+    ResultDocument cancelled = await job.CancelAsync();
+
+    AssertEqual(ResultStatus.Running, refreshed.Status, "facade refreshed status");
+    AssertEqual(ResultStatus.Cancelled, cancelled.Status, "facade cancelled status");
+    AssertEqual(ResultStatus.Cancelled, job.LatestResult?.Status, "facade latest status");
+    AssertEqual(true, job.IsTerminal, "facade terminal state");
+    AssertEqual(true, job.CanCancel, "facade cancellation capability");
+    AssertSequence(
+        new[] { ResultStatus.Running, ResultStatus.Cancelled },
+        statuses,
+        "facade result events");
+}
+
+static async Task TestFacadeModelSelectionAsync()
+{
+    byte[] expected = Encoding.UTF8.GetBytes("onnx model");
+    var handler = new RecordingHttpHandler(request =>
+    {
+        if (request.Uri.AbsolutePath.EndsWith("/results/submission-1", StringComparison.Ordinal))
+        {
+            return JsonResponse(
+                ResultJson(
+                    "completed",
+                    """
+                    ,"artifacts":{
+                      "model":{"storage":"gcs","bucket":"models","path":"policy.zip","format":"zip"},
+                      "onnx_model":{"storage":"gcs","bucket":"models","path":"policy.onnx","format":"onnx"},
+                      "sentis_model":{"storage":"gcs","bucket":"models","path":"policy.sentis.onnx","format":"onnx","target":"unity-sentis"}
+                    }
+                    """));
+        }
+
+        AssertEqual(
+            "https://storage.googleapis.com/models/policy.onnx",
+            request.Uri.AbsoluteUri,
+            "facade selected model URI");
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(expected),
+        };
+    });
+    using var job = new EmbodiedLabJob(
+        CreateTransport(handler, new QueueWebSocketFactory()),
+        "submission-1",
+        "capability-1",
+        synchronizationContext: null);
+    string directory = Path.Combine(Path.GetTempPath(), $"embodiedlab-job-{Guid.NewGuid():N}");
+    string destination = Path.Combine(directory, "policy.onnx");
+
+    try
+    {
+        await job.RefreshAsync();
+        await job.DownloadModelAsync(destination);
+        AssertSequence(expected, await File.ReadAllBytesAsync(destination), "facade model bytes");
+    }
+    finally
+    {
+        if (Directory.Exists(directory))
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+}
+
+static async Task TestConcurrentCompletionMonitorIsRejectedAsync()
+{
+    var handler = new RecordingHttpHandler(
+        request => throw new InvalidOperationException($"Unexpected request: {request.Uri}"));
+    var socket = new ScriptedWebSocket(
+        new[] { TextFrame("""{"type":"connected","submission_id":"submission-1"}""") },
+        blockAfterFrames: true);
+    using var job = new EmbodiedLabJob(
+        CreateTransport(handler, new QueueWebSocketFactory(socket)),
+        "submission-1",
+        "capability-1",
+        synchronizationContext: null);
+    using var cancellation = new CancellationTokenSource();
+    var firstMonitor = job.WaitForCompletionAsync(cancellation.Token);
+    bool concurrentMonitorRejected = false;
+
+    try
+    {
+        await job.WaitForCompletionAsync();
+    }
+    catch (InvalidOperationException)
+    {
+        concurrentMonitorRejected = true;
+    }
+
+    cancellation.Cancel();
+    bool firstMonitorCancelled = false;
+    try
+    {
+        await firstMonitor;
+    }
+    catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+    {
+        firstMonitorCancelled = true;
+    }
+
+    AssertEqual(true, concurrentMonitorRejected, "concurrent monitor rejection");
+    AssertEqual(true, firstMonitorCancelled, "first monitor cancellation");
+}
+
 static EmbodiedLabTransport CreateTransport(
     RecordingHttpHandler handler,
     IResultWebSocketFactory factory,
@@ -320,9 +447,9 @@ static HttpResponseMessage JsonResponse(
     };
 }
 
-static string ResultJson(string status)
+static string ResultJson(string status, string additionalProperties = "")
 {
-    return $$"""{"submission_id":"submission-1","status":"{{status}}"}""";
+    return $$"""{"submission_id":"submission-1","status":"{{status}}"{{additionalProperties}}}""";
 }
 
 static ScriptedFrame TextFrame(string text) => new(text, WebSocketMessageType.Text);

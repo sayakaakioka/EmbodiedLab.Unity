@@ -91,7 +91,10 @@ class RunUnityTestsTests(unittest.TestCase):
 
             self.assertEqual(0, exit_code)
             run_mock.assert_called_once()
-            self.assertIn('total="4"', results_path.read_text(encoding="utf-8"))
+            self.assertIn(
+                f'total="{len(run_unity_tests.REQUIRED_TEST_NAMES)}"',
+                results_path.read_text(encoding="utf-8"),
+            )
 
     def test_validate_results_rejects_a_missing_required_test(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

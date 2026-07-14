@@ -13,3 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Versioned EmbodiedLab v0 schemas and deterministic NJsonSchema C# DTO
   generation.
 - Canonical contract fixture checks and generated-code drift detection.
+- WebSocket-first job monitoring with conditional HTTP reconciliation, cloud
+  cancellation, and streamed public-GCS artifact downloads.
+- Stateful `EmbodiedLabJob` Unity API for submit, restore, refresh, monitor,
+  cancel, replay-manifest download, and trained-model download.

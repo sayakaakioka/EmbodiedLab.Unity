@@ -51,9 +51,14 @@ namespace EmbodiedLab.Unity.Internal
             ResultMonitorTiming monitorTiming,
             Func<TimeSpan, CancellationToken, Task> delayAsync)
         {
-            this.apiBaseUri = NormalizeBaseUri(apiBaseUri, "http", "https");
+            this.apiBaseUri = NormalizeBaseUri(
+                apiBaseUri,
+                nameof(apiBaseUri),
+                "http",
+                "https");
             this.resultWebSocketBaseUri = NormalizeBaseUri(
                 resultWebSocketBaseUri,
+                nameof(resultWebSocketBaseUri),
                 "ws",
                 "wss");
             this.httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
@@ -296,23 +301,28 @@ namespace EmbodiedLab.Unity.Internal
             httpClient.Dispose();
         }
 
-        private static Uri NormalizeBaseUri(Uri uri, params string[] allowedSchemes)
+        internal static Uri NormalizeBaseUri(
+            Uri uri,
+            string parameterName,
+            params string[] allowedSchemes)
         {
             if (uri == null)
             {
-                throw new ArgumentNullException(nameof(uri));
+                throw new ArgumentNullException(parameterName);
             }
 
             if (!uri.IsAbsoluteUri || !allowedSchemes.Contains(uri.Scheme, StringComparer.OrdinalIgnoreCase))
             {
                 throw new ArgumentException(
                     $"URI must be absolute and use {string.Join(" or ", allowedSchemes)}.",
-                    nameof(uri));
+                    parameterName);
             }
 
             if (!string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment))
             {
-                throw new ArgumentException("Base URI cannot contain a query or fragment.", nameof(uri));
+                throw new ArgumentException(
+                    "Base URI cannot contain a query or fragment.",
+                    parameterName);
             }
 
             string value = uri.AbsoluteUri.EndsWith("/", StringComparison.Ordinal)
