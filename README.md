@@ -37,6 +37,18 @@ https://github.com/sayakaakioka/EmbodiedLab.Unity.git
 
 The package identifier is `com.embodiedlab.unity`.
 
+## Import the Quickstart sample
+
+In Package Manager, select **EmbodiedLab Unity SDK**, open the **Samples** tab,
+and import **Quickstart**. Then open
+`Assets/Samples/EmbodiedLab Unity SDK/0.1.0/Quickstart/Quickstart.unity`
+and enter the API and result WebSocket base URLs in Play Mode.
+
+The sample submits the included fixed navigation scenario, displays WebSocket
+result updates, requests cloud cancellation, and downloads a completed ONNX
+model under `Application.persistentDataPath`. The sample intentionally does not
+include EnvForge's scene authoring, job history, replay UI, or model inference.
+
 ## Quick start
 
 Create the deployment endpoints once, build a contract `ScenarioBundle`, and
