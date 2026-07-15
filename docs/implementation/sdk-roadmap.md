@@ -4,8 +4,9 @@
 
 キャンセル可能な v0 契約、WebSocket 優先の内部 transport、状態を持つ
 `EmbodiedLabJob` facade、用途別の最小シナリオ／リプレイ API、EnvForge
-の SDK 移行、固定環境の Quickstart sample まで完了した。次は、学習中の環境を
-固定モードと 4 分割壁パーツ生成モードから選べるようにする段階である。
+の SDK 移行、固定環境の Quickstart sample、canonical world 表示、sample-local
+job history まで完了した。次は、Quickstart に Replay playback と ONNX inference
+を追加する段階である。
 
 ## 合意済みの設計
 
@@ -24,7 +25,8 @@
 - submission 作成時に一度だけ返される capability token を job handle が保持し、
   cloud cancel の Bearer token として使う。C# の `CancellationToken` はローカルの
   待機だけを中止し、cloud job の停止には `CancelAsync` を使う。
-- EnvForge 固有の UI とジョブ履歴は EnvForge に残す。
+- EnvForge 固有の UI と再利用可能なジョブ履歴は EnvForge に残す。Quickstart
+  sample 内には、restore と監視再開を説明する最小限のローカル履歴だけを置く。
 - DTO 生成には NJsonSchema 11.6.1 と Newtonsoft.Json を使う。
 - Pydantic の draft 2020-12 schema は、現在使っている `$defs`、ローカル参照、
   文字列 `const`、`schema | null` 形式の nullable、および現在の2つの
@@ -184,6 +186,33 @@
   build による sample と実 SDK API のコンパイル
 - EnvForge 固有の map authoring、履歴、Replay UI、推論は追加しない
 
+### Quickstart の canonical world と sample-local history
+
+[EmbodiedLab.Unity #20](https://github.com/sayakaakioka/EmbodiedLab.Unity/issues/20)
+で以下を固定した。
+
+- submit する `NavigationScenario.json` と同じ `ScenarioBundle` から floor、全 wall、
+  全 obstacle、robot start、goal、overview camera、light を生成
+- `<Application.persistentDataPath>/EmbodiedLabQuickstart/job-history.json` への
+  atomic な履歴保存と newest-first 表示
+- submission ID、時刻、endpoint、exact scenario、最新 status/progress、active job
+  の cancel capability、ローカル Replay／ONNX path の保存
+- 履歴選択時の `EmbodiedLabJob.Restore`、明示 refresh、非終端 job の WebSocket
+  監視再開、および終端時の cancel capability 消去
+- 二段階確認による履歴 record だけの削除。cloud cancel、cloud delete、ローカル
+  artifact 削除は行わない
+- submit 成功直後に job handle を確保し、world 生成や履歴保存に失敗しても監視と
+  cloud cancel を継続できる局所的なエラー分離。save failure は dirty として再試行し、
+  submit response と Play Mode 終了が競合した場合も最小履歴を best-effort 保存する
+- submit、restore、cancel、download の操作競合防止、read-only な cloud target
+  表示、および cloud cancel の二段階確認
+- submission ID をローカル artifact directory に使う際の traversal 防止
+- 終端3状態での cancel capability 消去、保存失敗時の履歴整合性、hard-crash 後の
+  valid temp file 回収、local path の behavior test
+- Quickstart 専用の履歴 behavior test と、全 sample source の実 SDK API に対する
+  .NET compatibility build
+- Replay playback、ONNX inference、固定／生成 map の選択は追加しない
+
 ## 完了した SDK スコープ
 
 - API と WebSocket の base URL だけを持つ `EmbodiedLabEndpoints`
@@ -196,14 +225,16 @@
 - シナリオの保存／復元、Replay manifest／step の読み込み
 - 選択した Replay chunk の遅延 download
 - 固定環境の job lifecycle を一画面で確認できる importable Quickstart sample
+- exact scenario を可視化し、再起動後に job を復元できる sample-local history
 - facade の Unity Editor test と .NET compatibility / behavior test
 
-ローカル履歴の保存方法と Editor UI は EnvForge に残す。Unity Editor は CI や
+再利用可能なローカル履歴と Editor UI は EnvForge に残す。Unity Editor は CI や
 EmbodiedLab の実行基盤へ追加しない。
 
 ## 次の段階
 
-1. 固定モードと 4 分割壁パーツ生成モードの選択を追加する。
+1. Quickstart に Replay playback と ONNX inference を追加する。
+2. 固定モードと 4 分割壁パーツ生成モードの選択を追加する。
 
 各段階を一つの Issue と小さな PR に分け、テストと lint が通った状態で次へ進む。
 
@@ -212,6 +243,13 @@ EmbodiedLab の実行基盤へ追加しない。
 - リポジトリのライセンスは未選定であり、最初のリリース前に決定する必要がある。
 - Unity の対応確認はローカルの Unity 6000.3 Test Runner で行い、PR に正確な
   Editor version、コマンド、結果を記録する。
+- non-loopback endpoint の HTTPS／WSS 強制は
+  [EmbodiedLab.Unity #23](https://github.com/sayakaakioka/EmbodiedLab.Unity/issues/23)
+  で公開 endpoint invariant として扱う。
+- import 済み Quickstart の実 Unity compiler 検証と canonical world の
+  repeatable behavior test は
+  [EmbodiedLab.Unity #24](https://github.com/sayakaakioka/EmbodiedLab.Unity/issues/24)
+  で local Unity runner を拡張して扱う。
 - 一般的な利用者認証、quota、billing、任意コード実行は現在の対象外である。
 
 ## 現行契約の検証
@@ -225,6 +263,9 @@ dotnet format Tools~/ContractTests/ContractTests.csproj --verify-no-changes
 dotnet build Tools~/TransportCompatibility/TransportCompatibility.csproj \
   --configuration Release
 dotnet format Tools~/TransportCompatibility/TransportCompatibility.csproj --verify-no-changes
+dotnet run --project Tools~/QuickstartTests/QuickstartTests.csproj \
+  --configuration Release
+dotnet format Tools~/QuickstartTests/QuickstartTests.csproj --verify-no-changes
 dotnet run --project Tools~/TransportTests/TransportTests.csproj \
   --configuration Release
 dotnet format Tools~/TransportTests/TransportTests.csproj --verify-no-changes

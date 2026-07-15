@@ -36,6 +36,7 @@ jobs:
           dotnet restore Tools~/ContractTests/ContractTests.csproj
           dotnet restore Tools~/TransportCompatibility/TransportCompatibility.csproj
           dotnet restore Tools~/TransportTests/TransportTests.csproj
+          dotnet restore Tools~/QuickstartTests/QuickstartTests.csproj
 
       - name: Generate contract candidate
         run: |
@@ -54,6 +55,7 @@ jobs:
           dotnet run --project Tools~/ContractTests/ContractTests.csproj --configuration Release --no-restore -p:GeneratedContractsFile=/tmp/EmbodiedLabContracts.g.cs -- Tests~/Fixtures
           dotnet build Tools~/TransportCompatibility/TransportCompatibility.csproj --configuration Release --no-restore
           dotnet run --project Tools~/TransportTests/TransportTests.csproj --configuration Release --no-restore
+          dotnet run --project Tools~/QuickstartTests/QuickstartTests.csproj --configuration Release --no-restore
 
       - name: Lint C# tooling
         run: |
@@ -61,6 +63,7 @@ jobs:
           dotnet format Tools~/ContractTests/ContractTests.csproj --verify-no-changes --no-restore
           dotnet format Tools~/TransportCompatibility/TransportCompatibility.csproj --verify-no-changes --no-restore
           dotnet format Tools~/TransportTests/TransportTests.csproj --verify-no-changes --no-restore
+          dotnet format Tools~/QuickstartTests/QuickstartTests.csproj --verify-no-changes --no-restore
 
       - name: Check committed generation
         run: cmp /tmp/EmbodiedLabContracts.g.cs Runtime/Contracts/EmbodiedLabContracts.g.cs

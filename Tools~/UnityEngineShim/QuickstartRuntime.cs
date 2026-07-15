@@ -6,10 +6,141 @@ namespace UnityEngine
 {
     public class Object
     {
+        public string name { get; set; } = string.Empty;
+
+        public static void Destroy(Object target)
+        {
+        }
     }
 
-    public class MonoBehaviour : Object
+    public class Component : Object
     {
+        public Transform transform { get; } = new();
+    }
+
+    public class MonoBehaviour : Component
+    {
+    }
+
+    public sealed class GameObject : Object
+    {
+        public GameObject(string name = "")
+        {
+            this.name = name;
+        }
+
+        public Transform transform { get; } = new();
+
+        public static GameObject CreatePrimitive(PrimitiveType type)
+        {
+            return new GameObject(type.ToString());
+        }
+
+        public T AddComponent<T>()
+            where T : Component, new()
+        {
+            return new T();
+        }
+
+        public T? GetComponent<T>()
+            where T : Component, new()
+        {
+            return new T();
+        }
+    }
+
+    public sealed class Transform
+    {
+        public Vector3 position { get; set; }
+
+        public Vector3 localScale { get; set; }
+
+        public Quaternion rotation { get; set; }
+
+        public void SetParent(Transform parent, bool worldPositionStays)
+        {
+        }
+    }
+
+    public enum PrimitiveType
+    {
+        Cube,
+        Capsule,
+        Cylinder,
+    }
+
+    public readonly struct Vector2
+    {
+        public Vector2(float x, float y)
+        {
+        }
+    }
+
+    public readonly struct Vector3
+    {
+        public Vector3(float x, float y, float z)
+        {
+        }
+    }
+
+    public readonly struct Quaternion
+    {
+        public static Quaternion Euler(float x, float y, float z)
+        {
+            return new Quaternion();
+        }
+    }
+
+    public readonly struct Color
+    {
+        public Color(float red, float green, float blue, float alpha = 1f)
+        {
+        }
+    }
+
+    public sealed class Shader : Object
+    {
+        public static Shader? Find(string name)
+        {
+            return new Shader { name = name };
+        }
+    }
+
+    public sealed class Material : Object
+    {
+        public Material(Shader shader)
+        {
+        }
+
+        public Color color { get; set; }
+    }
+
+    public sealed class Renderer : Component
+    {
+        public Material? sharedMaterial { get; set; }
+    }
+
+    public sealed class Camera : Component
+    {
+        public bool orthographic { get; set; }
+
+        public float orthographicSize { get; set; }
+
+        public float nearClipPlane { get; set; }
+
+        public float farClipPlane { get; set; }
+    }
+
+    public sealed class Light : Component
+    {
+        public LightType type { get; set; }
+
+        public float intensity { get; set; }
+    }
+
+    public enum LightType
+    {
+        Directional,
     }
 
     [AttributeUsage(AttributeTargets.Class)]
@@ -72,6 +203,17 @@ namespace UnityEngine
         {
         }
 
+        public static Vector2 BeginScrollView(
+            Vector2 scrollPosition,
+            params GUILayoutOption[] options)
+        {
+            return scrollPosition;
+        }
+
+        public static void EndScrollView()
+        {
+        }
+
         public static void Label(string text, params GUILayoutOption[] options)
         {
         }
@@ -95,6 +237,11 @@ namespace UnityEngine
         }
 
         public static GUILayoutOption Width(float width)
+        {
+            return new GUILayoutOption();
+        }
+
+        public static GUILayoutOption Height(float height)
         {
             return new GUILayoutOption();
         }
