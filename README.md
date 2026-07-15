@@ -90,6 +90,8 @@ thread context.
 The replay-bundle artifact currently points to its manifest, so
 `DownloadReplayBundleAsync` saves that manifest. `DownloadModelAsync` selects
 `onnx_model` first, then the Unity Sentis model, then the generic model artifact.
+Result artifacts exist only at `job.Result?.ResultBundle?.Artifacts`; the SDK does
+not expose the removed top-level result artifact field.
 
 Read a saved scenario with the generated concrete sensor and reward types intact:
 
