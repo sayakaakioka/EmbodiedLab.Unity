@@ -19,3 +19,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cancel, replay-manifest download, and trained-model download.
 - Domain-specific scenario JSON persistence, replay manifest and step readers,
   and lazy replay chunk downloads.
+- Importable Quickstart sample for the fixed-environment cloud job workflow.

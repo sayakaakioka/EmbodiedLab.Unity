@@ -17,5 +17,12 @@
   },
   "dependencies": {
     "com.unity.nuget.newtonsoft-json": "3.2.2"
-  }
+  },
+  "samples": [
+    {
+      "displayName": "Quickstart",
+      "description": "Submit, monitor, cancel, and download a fixed-environment EmbodiedLab training job.",
+      "path": "Samples~/Quickstart"
+    }
+  ]
 }

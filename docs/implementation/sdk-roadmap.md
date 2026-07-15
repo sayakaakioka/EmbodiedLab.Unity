@@ -3,9 +3,9 @@
 ## 現在のフェーズ
 
 キャンセル可能な v0 契約、WebSocket 優先の内部 transport、状態を持つ
-`EmbodiedLabJob` facade、用途別の最小シナリオ／リプレイ API は完了した。
-現在は EnvForge をこの SDK へ移行し、重複する通信、契約 DTO、シリアライズ、
-リプレイ取得コードを削除する段階にある。
+`EmbodiedLabJob` facade、用途別の最小シナリオ／リプレイ API、EnvForge
+の SDK 移行、固定環境の Quickstart sample まで完了した。次は、学習中の環境を
+固定モードと 4 分割壁パーツ生成モードから選べるようにする段階である。
 
 ## 合意済みの設計
 
@@ -164,6 +164,26 @@
 - 汎用 JSON／artifact API や Replay Bundle の一括 download は追加しない
 - canonical fixture、gzip、相対 chunk path の回帰テスト
 
+### EnvForge の SDK 移行
+
+[EnvForge #16](https://github.com/sayakaakioka/EnvForge/pull/16) で以下を完了した。
+
+- EmbodiedLab.Unity を Git revision で固定
+- EnvForge 内の重複する cloud transport、契約 DTO、artifact download を削除
+- EnvForge 固有の Editor UI とローカル job history だけを残す境界テスト
+
+### 固定環境の Unity Quickstart sample
+
+[EmbodiedLab.Unity #18](https://github.com/sayakaakioka/EmbodiedLab.Unity/issues/18)
+で以下を固定した。
+
+- Package Manager から import できる `Samples~/Quickstart`
+- 固定した canonical scenario による submit と WebSocket 状態監視
+- cloud cancel と完了済み ONNX model の download
+- package metadata、scene と asset GUID の構造テスト、および .NET compatibility
+  build による sample と実 SDK API のコンパイル
+- EnvForge 固有の map authoring、履歴、Replay UI、推論は追加しない
+
 ## 完了した SDK スコープ
 
 - API と WebSocket の base URL だけを持つ `EmbodiedLabEndpoints`
@@ -175,6 +195,7 @@
 - Replay Bundle manifest と学習済み ONNX model の download
 - シナリオの保存／復元、Replay manifest／step の読み込み
 - 選択した Replay chunk の遅延 download
+- 固定環境の job lifecycle を一画面で確認できる importable Quickstart sample
 - facade の Unity Editor test と .NET compatibility / behavior test
 
 ローカル履歴の保存方法と Editor UI は EnvForge に残す。Unity Editor は CI や
@@ -182,8 +203,7 @@ EmbodiedLab の実行基盤へ追加しない。
 
 ## 次の段階
 
-1. EnvForge を SDK 利用へ移行し、既存動作を回帰テストで確認する。
-2. 固定モードと 4 分割壁パーツ生成モードの選択を追加する。
+1. 固定モードと 4 分割壁パーツ生成モードの選択を追加する。
 
 各段階を一つの Issue と小さな PR に分け、テストと lint が通った状態で次へ進む。
 
