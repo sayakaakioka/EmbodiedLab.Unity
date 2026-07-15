@@ -16,9 +16,10 @@ shared by EnvForge and custom Unity frontends. The first supported workflow is:
 - monitor its lifecycle;
 - download its result document, replay bundle, and trained model.
 
-Editor UI, local job history, and EnvForge-specific scene authoring remain in
-[EnvForge](https://github.com/sayakaakioka/EnvForge). Server behavior and the
-source contract models remain in
+Reusable Editor UI, application-level job history, and EnvForge-specific scene
+authoring remain in [EnvForge](https://github.com/sayakaakioka/EnvForge). The
+Quickstart includes sample-local history only to teach restore and monitoring.
+Server behavior and the source contract models remain in
 [EmbodiedLab](https://github.com/sayakaakioka/EmbodiedLab).
 
 ## Requirements
@@ -44,10 +45,12 @@ and import **Quickstart**. Then open
 `Assets/Samples/EmbodiedLab Unity SDK/0.1.0/Quickstart/Quickstart.unity`
 and enter the API and result WebSocket base URLs in Play Mode.
 
-The sample submits the included fixed navigation scenario, displays WebSocket
-result updates, requests cloud cancellation, and downloads a completed ONNX
-model under `Application.persistentDataPath`. The sample intentionally does not
-include EnvForge's scene authoring, job history, replay UI, or model inference.
+The sample builds a visible navigation world from the exact included scenario,
+submits it, displays WebSocket result updates, requests cloud cancellation, and
+downloads a completed ONNX model under `Application.persistentDataPath`. Its
+sample-local history restores prior jobs and resumes monitoring across restarts.
+The sample intentionally does not include EnvForge's scene authoring, reusable
+history UI, replay playback, or model inference.
 
 ## Quick start
 

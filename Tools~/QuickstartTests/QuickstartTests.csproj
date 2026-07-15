@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Runtime/Contracts/EmbodiedLabContracts.g.cs" Link="Generated/EmbodiedLabContracts.g.cs" />
+    <Compile Include="../../Samples~/Quickstart/QuickstartHistoryRecord.cs" Link="Samples/QuickstartHistoryRecord.cs" />
+    <Compile Include="../../Samples~/Quickstart/QuickstartHistoryStore.cs" Link="Samples/QuickstartHistoryStore.cs" />
+    <Compile Include="../../Samples~/Quickstart/QuickstartLocalPaths.cs" Link="Samples/QuickstartLocalPaths.cs" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
+  </ItemGroup>
+</Project>

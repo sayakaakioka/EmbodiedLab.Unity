@@ -14,8 +14,9 @@ EmbodiedLab のクラウド学習機能を EnvForge から切り離し、Unity
   の正本を所有する。
 - `EmbodiedLab.Unity` は JSON Schema から生成した C# DTO、Unity 向けの
   ジョブ API、通信と成果物ダウンロードを所有する。
-- `EnvForge` は Editor UI、ローカルのジョブ履歴、シーン作成フローを所有し、
-  クラウド操作にはこの SDK を利用する。
+- `EnvForge` は再利用可能な Editor UI、ローカルのジョブ履歴、シーン作成フローを
+  所有し、クラウド操作にはこの SDK を利用する。SDK の Quickstart sample には、
+  restore と監視再開を説明するための最小限の sample-local 履歴だけを置く。
 
 責務をまたぐ同じ実装や互換ラッパーは残さない。
 

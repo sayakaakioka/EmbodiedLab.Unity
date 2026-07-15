@@ -20,3 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Domain-specific scenario JSON persistence, replay manifest and step readers,
   and lazy replay chunk downloads.
 - Importable Quickstart sample for the fixed-environment cloud job workflow.
+- Canonical Quickstart world rendering and sample-local job history with
+  restore, refresh, resumed monitoring, guarded cloud cancellation, safe local
+  artifact paths, and record-only removal.

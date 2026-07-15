@@ -12,7 +12,7 @@
     <Compile Include="../../Runtime/EmbodiedLabReplay.cs" Link="Runtime/EmbodiedLabReplay.cs" />
     <Compile Include="../../Runtime/ScenarioBundleJson.cs" Link="Runtime/ScenarioBundleJson.cs" />
     <Compile Include="../../Runtime/Transport/*.cs" Link="Transport/%(Filename)%(Extension)" />
-    <Compile Include="../../Samples~/Quickstart/QuickstartController.cs" Link="Samples/QuickstartController.cs" />
+    <Compile Include="../../Samples~/Quickstart/*.cs" Link="Samples/%(Filename)%(Extension)" />
     <Compile Include="../UnityEngineShim/Awaitable.cs" Link="UnityEngine/Awaitable.cs" />
     <Compile Include="../UnityEngineShim/QuickstartRuntime.cs" Link="UnityEngine/QuickstartRuntime.cs" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
