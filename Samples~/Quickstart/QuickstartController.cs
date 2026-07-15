@@ -19,7 +19,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private string resultWebSocketBaseUrl = "wss://results.example.com/";
 
         [SerializeField]
-        private TextAsset? scenarioJson;
+        private TextAsset? scenarioJson = null;
 
         private CancellationTokenSource? lifetimeCancellation;
         private EmbodiedLabJob? job;
