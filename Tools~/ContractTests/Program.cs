@@ -37,6 +37,24 @@ _ = ArtifactFormat.JsonlGz;
 AssertSchemaDefaultValidation();
 
 var resultDocument = JObject.Parse(ReadFixture("navigation_completed_result_document.json"));
+if (typeof(ResultDocument).GetProperty("Artifacts") is not null)
+{
+    throw new InvalidOperationException(
+        "ResultDocument must not expose the legacy top-level Artifacts property.");
+}
+
+if (resultDocument.Property("artifacts") is not null)
+{
+    throw new InvalidOperationException(
+        "The canonical result document must not contain top-level artifacts.");
+}
+
+if (resultDocument["result_bundle"]?["artifacts"] is null)
+{
+    throw new InvalidOperationException(
+        "The canonical result document must contain result_bundle.artifacts.");
+}
+
 RoundTripJson<ResultBundle>(
     resultDocument["result_bundle"]!.ToString(),
     "result-bundle.schema.json");
