@@ -320,10 +320,15 @@ static async Task TestFacadeModelSelectionAsync()
                 ResultJson(
                     "completed",
                     """
-                    ,"artifacts":{
-                      "model":{"storage":"gcs","bucket":"models","path":"policy.zip","format":"zip"},
-                      "onnx_model":{"storage":"gcs","bucket":"models","path":"policy.onnx","format":"onnx"},
-                      "sentis_model":{"storage":"gcs","bucket":"models","path":"policy.sentis.onnx","format":"onnx","target":"unity-sentis"}
+                    ,"result_bundle":{
+                      "scenario_id":"scenario-1",
+                      "job_id":"submission-1",
+                      "status":"completed",
+                      "artifacts":{
+                        "model":{"storage":"gcs","bucket":"models","path":"policy.zip","format":"zip"},
+                        "onnx_model":{"storage":"gcs","bucket":"models","path":"policy.onnx","format":"onnx"},
+                        "sentis_model":{"storage":"gcs","bucket":"models","path":"policy.sentis.onnx","format":"onnx","target":"unity-sentis"}
+                      }
                     }
                     """));
         }
@@ -371,12 +376,17 @@ static async Task TestFacadeReplayChunkAsync()
                 ResultJson(
                     "completed",
                     """
-                    ,"artifacts":{
-                      "replay_bundle":{
-                        "storage":"gcs",
-                        "bucket":"replays",
-                        "path":"results/submission-1/replay/manifest.json",
-                        "format":"json"
+                    ,"result_bundle":{
+                      "scenario_id":"scenario-1",
+                      "job_id":"submission-1",
+                      "status":"completed",
+                      "artifacts":{
+                        "replay_bundle":{
+                          "storage":"gcs",
+                          "bucket":"replays",
+                          "path":"results/submission-1/replay/manifest.json",
+                          "format":"json"
+                        }
                       }
                     }
                     """));
