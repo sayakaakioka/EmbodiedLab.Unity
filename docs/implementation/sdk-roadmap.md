@@ -118,6 +118,17 @@
   `cancelled` の生成 DTO への反映
 - Python、.NET、CI による schema、response、生成差分の検証
 
+### Result artifact の正規配置への同期
+
+[EmbodiedLab #31](https://github.com/sayakaakioka/EmbodiedLab/pull/31) と
+[EmbodiedLab.Unity #16](https://github.com/sayakaakioka/EmbodiedLab.Unity/issues/16)
+で以下を固定した。
+
+- artifact の正規配置を `result_bundle.artifacts` のみに限定
+- 生成 DTO から旧 `ResultDocument.Artifacts` を削除
+- canonical fixture、schema、provenance、.NET／Unity 契約テストを同期
+- 旧 top-level `artifacts` の互換 property や fallback parser は追加しない
+
 ### WebSocket 優先の内部 transport
 
 [EmbodiedLab.Unity #11](https://github.com/sayakaakioka/EmbodiedLab.Unity/pull/11)
