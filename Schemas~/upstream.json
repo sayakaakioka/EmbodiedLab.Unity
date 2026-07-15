@@ -3,12 +3,12 @@
     "replay-bundle-manifest.schema.json": "3637ea2b27fd34d96e46e37b6b5d80d68445551dc74d270b7c94bf45f62cebf2",
     "replay-log-step.schema.json": "bec34bb369924bac4797d1b50e054d48119feb9dd2acc2284683039b4e147356",
     "result-bundle.schema.json": "c4bd49516d8336a58ca261cd13f1e95cc550775c993e6f7ac09380729f2e1c74",
-    "result-document.schema.json": "e674ecdeda71b4eb1ce35cf7bc49c5ab058f22c83217daff5f12b4891497ec1d",
+    "result-document.schema.json": "41c08fa48b65827c34dfca2b7d09e13b4a37cd11a222982c35198c6043700976",
     "scenario-bundle.schema.json": "55b1fc9d1fb69cb8c166b16ed3e4f82048e0a7f1d1c086083cf725cccf2ab632",
     "submission-response.schema.json": "6471f928dfef688e03db0ce22c3c5d3cdca5598dd11e40f2734491331a1b4f83",
     "training-response.schema.json": "792728aa7a0ba711a7508017fcd51e779e2a5e135438d6405cca0bf4853004b7"
   },
   "repository": "https://github.com/sayakaakioka/EmbodiedLab",
-  "revision": "2f2a80bd0502e351c23d99e6f06a3c42a152c81b",
+  "revision": "ac97233a168d8d1c3ece90d4ce02e60e9272b17f",
   "schemaVersion": "v0"
 }
