@@ -48,6 +48,14 @@ namespace EmbodiedLab.Unity.Tests
 
             var documentJson = JObject.Parse(
                 ReadFixture("navigation_completed_result_document.json"));
+            Assert.That(
+                typeof(ResultDocument).GetProperty("Artifacts"),
+                Is.Null);
+            Assert.That(documentJson.Property("artifacts"), Is.Null);
+            Assert.That(
+                documentJson["result_bundle"]?["artifacts"],
+                Is.Not.Null);
+
             var resultBundleJson = documentJson["result_bundle"]?.ToString();
             Assert.That(resultBundleJson, Is.Not.Null);
             RoundTripJson<ResultBundle>(
