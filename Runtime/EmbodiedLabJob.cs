@@ -4,7 +4,6 @@ using System;
 using System.Threading;
 using EmbodiedLab.Contracts;
 using EmbodiedLab.Unity.Internal;
-using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 namespace EmbodiedLab.Unity
@@ -373,24 +372,7 @@ namespace EmbodiedLab.Unity
         {
             ResultDocument result = LatestResult ?? throw new InvalidOperationException(
                 "No result has been received for this job.");
-            if (result.ResultBundle?.Artifacts != null)
-            {
-                return result.ResultBundle.Artifacts;
-            }
-
-            if (result.Artifacts is ResultArtifacts typedArtifacts)
-            {
-                return typedArtifacts;
-            }
-
-            if (result.Artifacts is JObject jsonArtifacts)
-            {
-                return jsonArtifacts.ToObject<ResultArtifacts>() ??
-                    throw new InvalidOperationException(
-                        "The latest result contains invalid artifact metadata.");
-            }
-
-            throw new InvalidOperationException(
+            return result.ResultBundle?.Artifacts ?? throw new InvalidOperationException(
                 "The latest result does not contain artifact metadata.");
         }
 
