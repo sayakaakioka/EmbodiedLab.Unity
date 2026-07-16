@@ -143,6 +143,29 @@ namespace EmbodiedLab.Unity.Tests
             }
         }
 
+        [Test]
+        public void ReplayReadersEnforceResourceLimits()
+        {
+            AssertManifestRejected(
+                CreateReplayManifest(
+                    new JArray(
+                        CreateReplayChunk(new string('p', 1025), stepCount: 1))));
+            AssertManifestRejected(
+                CreateReplayManifest(
+                    new JArray(
+                        CreateReplayChunk(
+                            "eval/chunk.jsonl.gz",
+                            stepCount: 100001))));
+
+            JObject oversizedManifest = CreateReplayManifest(new JArray());
+            oversizedManifest["scenario_id"] = new string('s', (1024 * 1024) + 1);
+            AssertManifestRejected(oversizedManifest);
+
+            Assert.Throws<InvalidDataException>(
+                () => EmbodiedLabReplay.ParseSteps(
+                    new string(' ', (1024 * 1024) + 1)));
+        }
+
         private static string FixtureDirectory
         {
             get
@@ -222,6 +245,48 @@ namespace EmbodiedLab.Unity.Tests
                     "v0",
                     filename));
             return File.ReadAllText(schemaPath);
+        }
+
+        private static JObject CreateReplayManifest(JArray chunks)
+        {
+            return new JObject
+            {
+                ["schema_version"] = "replay-bundle.v0",
+                ["job_id"] = "submission-1",
+                ["scenario_id"] = "navigation_default",
+                ["total_timesteps"] = 5000,
+                ["chunks"] = chunks,
+            };
+        }
+
+        private static JObject CreateReplayChunk(string path, int stepCount)
+        {
+            return new JObject
+            {
+                ["phase"] = "eval",
+                ["policy_mode"] = "deterministic",
+                ["checkpoint_step"] = 5000,
+                ["path"] = path,
+                ["format"] = "jsonl.gz",
+                ["step_count"] = stepCount,
+            };
+        }
+
+        private static void AssertManifestRejected(JObject manifest)
+        {
+            string path = Path.Combine(
+                Path.GetTempPath(),
+                $"embodiedlab-replay-manifest-{Guid.NewGuid():N}.json");
+            try
+            {
+                File.WriteAllText(path, manifest.ToString(Formatting.None));
+                Assert.Throws<InvalidDataException>(
+                    () => EmbodiedLabReplay.ReadManifest(path));
+            }
+            finally
+            {
+                File.Delete(path);
+            }
         }
     }
 }

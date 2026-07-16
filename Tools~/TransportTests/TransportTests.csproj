@@ -11,6 +11,7 @@
     <Compile Include="../../Runtime/EmbodiedLabEndpoints.cs" Link="Runtime/EmbodiedLabEndpoints.cs" />
     <Compile Include="../../Runtime/EmbodiedLabJob.cs" Link="Runtime/EmbodiedLabJob.cs" />
     <Compile Include="../../Runtime/EmbodiedLabReplay.cs" Link="Runtime/EmbodiedLabReplay.cs" />
+    <Compile Include="../../Runtime/ResourceLimitedReadStream.cs" Link="Runtime/ResourceLimitedReadStream.cs" />
     <Compile Include="../../Runtime/ScenarioBundleJson.cs" Link="Runtime/ScenarioBundleJson.cs" />
     <Compile Include="../../Runtime/Transport/*.cs" Link="Transport/%(Filename)%(Extension)" />
     <Compile Include="../UnityEngineShim/Awaitable.cs" Link="UnityEngine/Awaitable.cs" />

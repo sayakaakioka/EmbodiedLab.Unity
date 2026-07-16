@@ -83,6 +83,9 @@ if (replayCount != 2)
 
 ValidatePublicScenarioJson();
 ValidatePublicReplayReaders();
+ValidateReplayManifestLimits();
+ValidateReplayLineLimit();
+ValidateReplayDecompressionAndStepLimits();
 
 Console.WriteLine(
     $"Validated canonical contracts, public persistence APIs, and {replayCount} replay steps.");
@@ -224,6 +227,140 @@ void ValidatePublicReplayReaders()
     }
 }
 
+void ValidateReplayManifestLimits()
+{
+    var oversizedChunks = new JArray();
+    for (int index = 0; index < 4097; index++)
+    {
+        oversizedChunks.Add(JValue.CreateNull());
+    }
+
+    AssertManifestRejected(
+        CreateReplayManifest(oversizedChunks),
+        "more than 4,096 replay chunks");
+
+    AssertManifestRejected(
+        CreateReplayManifest(
+            new JArray(CreateReplayChunk(new string('p', 1025), stepCount: 1))),
+        "a replay chunk path longer than 1,024 characters");
+
+    AssertManifestRejected(
+        CreateReplayManifest(
+            new JArray(CreateReplayChunk("eval/chunk.jsonl.gz", stepCount: 100001))),
+        "a replay chunk declaring more than 100,000 steps");
+
+    JObject oversizedManifest = CreateReplayManifest(new JArray());
+    oversizedManifest["scenario_id"] = new string('s', (1024 * 1024) + 1);
+    AssertManifestRejected(oversizedManifest, "a replay manifest larger than 1 MiB");
+}
+
+void ValidateReplayLineLimit()
+{
+    AssertThrows<InvalidDataException>(
+        () => EmbodiedLabReplay.ParseSteps(new string(' ', (1024 * 1024) + 1)),
+        "a JSONL line longer than 1 MiB");
+}
+
+void ValidateReplayDecompressionAndStepLimits()
+{
+    string gzipPath = Path.Combine(
+        Path.GetTempPath(),
+        $"embodiedlab-replay-limit-{Guid.NewGuid():N}.jsonl.gz");
+    try
+    {
+        using (var file = File.Create(gzipPath))
+        using (var gzip = new GZipStream(file, CompressionMode.Compress))
+        using (var writer = new StreamWriter(gzip))
+        {
+            writer.WriteLine(new string(' ', 600));
+            writer.WriteLine(new string(' ', 600));
+        }
+
+        AssertThrows<InvalidDataException>(
+            () => EmbodiedLabReplay.ReadSteps(
+                gzipPath,
+                CreateReplayLimits(
+                    maximumDecompressedBytes: 1024,
+                    maximumLineBytes: 700,
+                    maximumSteps: 10)),
+            "a gzip replay expanding beyond its byte budget");
+    }
+    finally
+    {
+        File.Delete(gzipPath);
+    }
+
+    string replayPath = Path.Combine(
+        fixtureDirectory,
+        "navigation_default_replay_log.jsonl");
+    AssertThrows<InvalidDataException>(
+        () => EmbodiedLabReplay.ReadSteps(
+            replayPath,
+            CreateReplayLimits(
+                maximumDecompressedBytes: 1024 * 1024,
+                maximumLineBytes: 1024 * 1024,
+                maximumSteps: 1)),
+        "more replay steps than the configured total limit");
+}
+
+ReplayResourceLimits CreateReplayLimits(
+    long maximumDecompressedBytes,
+    int maximumLineBytes,
+    int maximumSteps)
+{
+    return new ReplayResourceLimits(
+        maximumManifestBytes: 1024 * 1024,
+        maximumManifestChunks: 4096,
+        maximumChunkPathCharacters: 1024,
+        maximumDeclaredChunkSteps: 100000,
+        maximumDecompressedBytes,
+        maximumLineBytes,
+        maximumSteps);
+}
+
+JObject CreateReplayManifest(JArray chunks)
+{
+    return new JObject
+    {
+        ["schema_version"] = "replay-bundle.v0",
+        ["job_id"] = "submission-1",
+        ["scenario_id"] = "navigation_default",
+        ["total_timesteps"] = 5000,
+        ["chunks"] = chunks,
+    };
+}
+
+JObject CreateReplayChunk(string path, int stepCount)
+{
+    return new JObject
+    {
+        ["phase"] = "eval",
+        ["policy_mode"] = "deterministic",
+        ["checkpoint_step"] = 5000,
+        ["path"] = path,
+        ["format"] = "jsonl.gz",
+        ["step_count"] = stepCount,
+    };
+}
+
+void AssertManifestRejected(JObject manifest, string description)
+{
+    string path = Path.Combine(
+        Path.GetTempPath(),
+        $"embodiedlab-replay-manifest-{Guid.NewGuid():N}.json");
+    try
+    {
+        File.WriteAllText(path, manifest.ToString(Formatting.None));
+        AssertThrows<InvalidDataException>(
+            () => EmbodiedLabReplay.ReadManifest(path),
+            description);
+    }
+    finally
+    {
+        File.Delete(path);
+    }
+}
+
 void AssertRejected(Action action, string description)
 {
     try
@@ -237,4 +374,19 @@ void AssertRejected(Action action, string description)
 
     throw new InvalidOperationException(
         $"Canonical JSON validation accepted {description}.");
+}
+
+void AssertThrows<TException>(Action action, string description)
+    where TException : Exception
+{
+    try
+    {
+        action();
+    }
+    catch (TException)
+    {
+        return;
+    }
+
+    throw new InvalidOperationException($"Accepted {description}.");
 }
