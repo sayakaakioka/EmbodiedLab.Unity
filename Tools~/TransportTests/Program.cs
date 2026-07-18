@@ -8,6 +8,7 @@ using EmbodiedLab.Unity.Internal;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("Endpoint encryption", TestEndpointEncryptionAsync),
     ("HTTP contracts", TestHttpContractsAsync),
     ("WebSocket primary", TestHealthyWebSocketUsesNoResultGetAsync),
     ("Connect failure reconciliation", TestConnectFailureReconcilesAsync),
@@ -35,6 +36,94 @@ foreach ((string name, Func<Task> run) in tests)
 
 Console.WriteLine($"Validated {tests.Length} transport behaviors.");
 return 0;
+
+static Task TestEndpointEncryptionAsync()
+{
+    var remote = new EmbodiedLabEndpoints(
+        "https://api.example.test/root",
+        "wss://stream.example.test/service");
+    AssertEqual("https://api.example.test/root/", remote.ApiBaseUri.AbsoluteUri, "remote API");
+    AssertEqual(
+        "wss://stream.example.test/service/",
+        remote.ResultWebSocketBaseUri.AbsoluteUri,
+        "remote result stream");
+
+    foreach ((string api, string stream) in new[]
+             {
+                 ("http://localhost:8000", "ws://localhost:8001"),
+                 ("http://127.0.0.1:8000", "ws://127.0.0.1:8001"),
+                 ("http://[::1]:8000", "ws://[::1]:8001"),
+             })
+    {
+        var loopback = new EmbodiedLabEndpoints(api, stream);
+        AssertEqual("http", loopback.ApiBaseUri.Scheme, "loopback API scheme");
+        AssertEqual("ws", loopback.ResultWebSocketBaseUri.Scheme, "loopback stream scheme");
+    }
+
+    AssertArgumentException(
+        () => new EmbodiedLabEndpoints(
+            "http://api.example.test",
+            "wss://stream.example.test"),
+        "apiBaseUrl",
+        "remote plaintext API");
+    AssertArgumentException(
+        () => new EmbodiedLabEndpoints(
+            "https://api.example.test",
+            "ws://stream.example.test"),
+        "resultWebSocketBaseUrl",
+        "remote plaintext result stream");
+    AssertArgumentException(
+        () => new EmbodiedLabEndpoints(
+            "https://api.example.test?query=1",
+            "wss://stream.example.test"),
+        "apiBaseUrl",
+        "API query");
+    AssertArgumentException(
+        () => new EmbodiedLabEndpoints(
+            "https://api.example.test",
+            "wss://stream.example.test#fragment"),
+        "resultWebSocketBaseUrl",
+        "result stream fragment");
+    AssertArgumentException(
+        () => new EmbodiedLabEndpoints(
+            "/relative-api",
+            "wss://stream.example.test"),
+        "apiBaseUrl",
+        "relative API");
+
+    AssertInternalEndpointRejected(
+        new Uri("http://api.example.test"),
+        new Uri("wss://stream.example.test"),
+        "apiBaseUri");
+    AssertInternalEndpointRejected(
+        new Uri("https://api.example.test"),
+        new Uri("ws://stream.example.test"),
+        "resultWebSocketBaseUri");
+    return Task.CompletedTask;
+}
+
+static void AssertInternalEndpointRejected(
+    Uri apiBaseUri,
+    Uri resultWebSocketBaseUri,
+    string parameterName)
+{
+    AssertArgumentException(
+        () =>
+        {
+            using var httpClient = new HttpClient(new RecordingHttpHandler(
+                request => throw new InvalidOperationException(
+                    $"Unexpected request: {request.Uri}")));
+            using var transport = new EmbodiedLabTransport(
+                apiBaseUri,
+                resultWebSocketBaseUri,
+                httpClient,
+                new QueueWebSocketFactory(),
+                ResultMonitorTiming.Default,
+                Task.Delay);
+        },
+        parameterName,
+        "internal plaintext endpoint");
+}
 
 static async Task TestHttpContractsAsync()
 {
@@ -697,6 +786,24 @@ static void AssertEqual<T>(T expected, T actual, string description)
         throw new InvalidOperationException(
             $"Expected {description} to be '{expected}', but received '{actual}'.");
     }
+}
+
+static void AssertArgumentException(
+    Action action,
+    string parameterName,
+    string description)
+{
+    try
+    {
+        action();
+    }
+    catch (ArgumentException exception)
+    {
+        AssertEqual(parameterName, exception.ParamName, $"{description} parameter");
+        return;
+    }
+
+    throw new InvalidOperationException($"Expected {description} to be rejected.");
 }
 
 static void AssertSequence<T>(IEnumerable<T> expected, IEnumerable<T> actual, string description)

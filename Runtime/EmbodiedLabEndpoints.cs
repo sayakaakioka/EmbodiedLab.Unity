@@ -10,6 +10,19 @@ namespace EmbodiedLab.Unity
     /// </summary>
     public sealed class EmbodiedLabEndpoints
     {
+        /// <summary>
+        /// Creates normalized API and result-stream base URIs.
+        /// </summary>
+        /// <param name="apiBaseUrl">
+        /// HTTPS for remote deployments; HTTP is allowed only for loopback development.
+        /// </param>
+        /// <param name="resultWebSocketBaseUrl">
+        /// WSS for remote deployments; WS is allowed only for loopback development.
+        /// </param>
+        /// <exception cref="ArgumentException">
+        /// An endpoint is not an absolute base URI, uses an unsupported scheme, or uses
+        /// plaintext transport for a non-loopback host.
+        /// </exception>
         public EmbodiedLabEndpoints(string apiBaseUrl, string resultWebSocketBaseUrl)
         {
             ApiBaseUri = ParseBaseUri(
@@ -24,14 +37,21 @@ namespace EmbodiedLab.Unity
                 "wss");
         }
 
+        /// <summary>
+        /// Gets the normalized HTTPS remote or HTTP loopback API base URI.
+        /// </summary>
         public Uri ApiBaseUri { get; }
 
+        /// <summary>
+        /// Gets the normalized WSS remote or WS loopback result-stream base URI.
+        /// </summary>
         public Uri ResultWebSocketBaseUri { get; }
 
         private static Uri ParseBaseUri(
             string value,
             string parameterName,
-            params string[] allowedSchemes)
+            string plaintextScheme,
+            string encryptedScheme)
         {
             if (string.IsNullOrWhiteSpace(value))
             {
@@ -46,7 +66,8 @@ namespace EmbodiedLab.Unity
             return EmbodiedLabTransport.NormalizeBaseUri(
                 uri,
                 parameterName,
-                allowedSchemes);
+                plaintextScheme,
+                encryptedScheme);
         }
     }
 }

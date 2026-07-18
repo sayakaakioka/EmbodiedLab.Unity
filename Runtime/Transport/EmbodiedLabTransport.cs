@@ -337,17 +337,28 @@ namespace EmbodiedLab.Unity.Internal
         internal static Uri NormalizeBaseUri(
             Uri uri,
             string parameterName,
-            params string[] allowedSchemes)
+            string plaintextScheme,
+            string encryptedScheme)
         {
             if (uri == null)
             {
                 throw new ArgumentNullException(parameterName);
             }
 
-            if (!uri.IsAbsoluteUri || !allowedSchemes.Contains(uri.Scheme, StringComparer.OrdinalIgnoreCase))
+            if (!uri.IsAbsoluteUri ||
+                (!uri.Scheme.Equals(plaintextScheme, StringComparison.OrdinalIgnoreCase) &&
+                    !uri.Scheme.Equals(encryptedScheme, StringComparison.OrdinalIgnoreCase)))
             {
                 throw new ArgumentException(
-                    $"URI must be absolute and use {string.Join(" or ", allowedSchemes)}.",
+                    $"URI must be absolute and use {plaintextScheme} or {encryptedScheme}.",
+                    parameterName);
+            }
+
+            if (uri.Scheme.Equals(plaintextScheme, StringComparison.OrdinalIgnoreCase) &&
+                !uri.IsLoopback)
+            {
+                throw new ArgumentException(
+                    $"Non-loopback endpoints must use {encryptedScheme}.",
                     parameterName);
             }
 
