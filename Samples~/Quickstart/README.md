@@ -15,16 +15,31 @@ training flow without depending on EnvForge.
    scenario, refresh the result, and resume WebSocket monitoring when active.
 7. Select **Cancel Cloud Job**, verify the read-only cloud target, and confirm
    the operation to stop an active remote job. Select **Download Model** after
-   training completes.
+   training completes. For a completed record, select **Download Replay**,
+   then use **Play Replay** and **Stop Replay**.
 
 The model is saved to:
 
     <Application.persistentDataPath>/EmbodiedLabQuickstart/<submission-id>/policy.onnx
 
+The replay manifest and selected chunk are saved under the same submission
+directory. **Download Replay** downloads the manifest first, selects the latest
+chunk whose phase is `eval` and policy mode is `deterministic`, then downloads
+only that chunk and reads its steps. The selected manifest and chunk paths are
+persisted in local history and loaded again when the completed record is
+restored.
+
+Playback applies authoritative replay X/Z position and yaw to the same robot
+used by the visible world. The clock follows each step's `time_seconds` and
+interpolates only between consecutive steps in the same episode. Episode
+boundaries have a short pause. **Stop Replay**, history selection, world
+rebuild, and leaving Play Mode stop playback; **Stop Replay** resets the robot
+to the first loaded step.
+
 `NavigationScenario.json` is both the exact fixed scenario submitted by this
 sample and the source for its visible floor, walls, obstacles, robot start,
 goal, overview camera, and light. Edit that contract JSON to try another fixed
-map. The sample does not play replays or run the downloaded policy.
+map. The sample does not run the downloaded policy.
 
 The sample stores resumable job records newest-first at:
 

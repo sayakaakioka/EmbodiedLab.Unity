@@ -33,7 +33,7 @@ class QuickstartSampleTests(unittest.TestCase):
                 {
                     "displayName": "Quickstart",
                     "description": (
-                        "Submit, monitor, cancel, and download a "
+                        "Submit, monitor, cancel, download, and replay a "
                         "fixed-environment EmbodiedLab training job."
                     ),
                     "path": "Samples~/Quickstart",
@@ -88,6 +88,10 @@ class QuickstartSampleTests(unittest.TestCase):
             "WaitForCompletionAsync",
             "CancelAsync",
             "DownloadModelAsync",
+            "DownloadReplayBundleAsync",
+            "EmbodiedLabReplay.ReadManifest",
+            "DownloadReplayChunkAsync",
+            "EmbodiedLabReplay.ReadSteps",
         ):
             with self.subTest(required_call=required_call):
                 self.assertIn(required_call, controller)
@@ -98,6 +102,8 @@ class QuickstartSampleTests(unittest.TestCase):
             "QuickstartHistoryRecord.cs",
             "QuickstartHistoryStore.cs",
             "QuickstartWorldBuilder.cs",
+            "QuickstartReplayPlayer.cs",
+            "QuickstartReplayTimeline.cs",
         )
 
         for filename in expected_files:
@@ -145,11 +151,42 @@ class QuickstartSampleTests(unittest.TestCase):
                 "restoreRunning",
                 "cancelRequestRunning",
                 "modelDownloadRunning",
+                "replayDownloadRunning",
             ):
                 with self.subTest(
                     method_name=method_name, operation_guard=operation_guard
                 ):
                     self.assertIn(operation_guard, body)
+
+    def test_replay_uses_selected_chunk_and_shared_robot(self) -> None:
+        controller = (SAMPLE_DIRECTORY / "QuickstartController.cs").read_text(
+            encoding="utf-8"
+        )
+        player = (SAMPLE_DIRECTORY / "QuickstartReplayPlayer.cs").read_text(
+            encoding="utf-8"
+        )
+        timeline = (SAMPLE_DIRECTORY / "QuickstartReplayTimeline.cs").read_text(
+            encoding="utf-8"
+        )
+
+        for control in ("Download Replay", "Play Replay", "Stop Replay"):
+            with self.subTest(control=control):
+                self.assertIn(f'"{control}"', controller)
+
+        manifest_index = controller.index("EmbodiedLabReplay.ReadManifest")
+        selection_index = controller.index(
+            "SelectLatestDeterministicEvaluationChunk", manifest_index
+        )
+        chunk_index = controller.index("DownloadReplayChunkAsync", selection_index)
+        steps_index = controller.index("EmbodiedLabReplay.ReadSteps", chunk_index)
+        self.assertLess(manifest_index, selection_index)
+        self.assertLess(selection_index, chunk_index)
+        self.assertLess(chunk_index, steps_index)
+        self.assertIn("worldBuilder?.RobotTransform", controller)
+        self.assertIn("activeRobot.position", player)
+        self.assertIn("activeRobot.rotation", player)
+        self.assertIn("EpisodePauseSeconds", timeline)
+        self.assertIn("TimeSeconds", timeline)
 
     def test_local_failures_do_not_discard_submitted_job(self) -> None:
         controller = (SAMPLE_DIRECTORY / "QuickstartController.cs").read_text(
@@ -235,7 +272,7 @@ class QuickstartSampleTests(unittest.TestCase):
 
         self.assertIn("../../Samples~/Quickstart/*.cs", project)
 
-    def test_ci_runs_quickstart_history_behaviors(self) -> None:
+    def test_ci_runs_quickstart_behaviors(self) -> None:
         workflow = (
             REPOSITORY_ROOT / ".github" / "workflows" / "contracts.yml"
         ).read_text(encoding="utf-8")

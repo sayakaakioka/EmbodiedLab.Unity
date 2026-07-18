@@ -22,7 +22,7 @@
   "samples": [
     {
       "displayName": "Quickstart",
-      "description": "Submit, monitor, cancel, and download a fixed-environment EmbodiedLab training job.",
+      "description": "Submit, monitor, cancel, download, and replay a fixed-environment EmbodiedLab training job.",
       "path": "Samples~/Quickstart"
     }
   ]

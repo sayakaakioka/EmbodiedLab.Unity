@@ -5,8 +5,8 @@
 キャンセル可能な v0 契約、WebSocket 優先の内部 transport、状態を持つ
 `EmbodiedLabJob` facade、用途別の最小シナリオ／リプレイ API、EnvForge
 の SDK 移行、固定環境の Quickstart sample、canonical world 表示、sample-local
-job history、成果物 download と replay reader の resource budget 固定まで完了した。
-次は、Quickstart に Replay playback と ONNX inference を追加する段階である。
+job history、成果物 download と replay reader の resource budget 固定、Replay
+playback まで完了した。次は、Quickstart に ONNX inference を追加する段階である。
 
 ## 合意済みの設計
 
@@ -26,7 +26,8 @@ job history、成果物 download と replay reader の resource budget 固定ま
   cloud cancel の Bearer token として使う。C# の `CancellationToken` はローカルの
   待機だけを中止し、cloud job の停止には `CancelAsync` を使う。
 - EnvForge 固有の UI と再利用可能なジョブ履歴は EnvForge に残す。Quickstart
-  sample 内には、restore と監視再開を説明する最小限のローカル履歴だけを置く。
+  sample 内には、restore、監視再開、Replay artifact の再利用を説明する最小限の
+  ローカル履歴だけを置く。
 - DTO 生成には NJsonSchema 11.6.1 と Newtonsoft.Json を使う。
 - Pydantic の draft 2020-12 schema は、現在使っている `$defs`、ローカル参照、
   文字列 `const`、`schema | null` 形式の nullable、および現在の2つの
@@ -227,6 +228,21 @@ job history、成果物 download と replay reader の resource budget 固定ま
   までに制限
 - 公開 API や runtime 設定を増やさず、SDK 内部の固定 invariant として実装
 
+### Quickstart の Replay playback
+
+[EmbodiedLab.Unity #21](https://github.com/sayakaakioka/EmbodiedLab.Unity/issues/21)
+で以下を固定した。
+
+- 完了済み履歴の明示 refresh 後に Replay manifest を取得し、最新 checkpoint の
+  deterministic evaluation chunk だけを選択して遅延 download
+- canonical な `EmbodiedLabReplay.ReadManifest` と `ReadSteps` を使い、manifest と
+  chunk のローカル path を sample-local history に保存
+- canonical world と同じ robot へ replay の X/Z 座標と yaw を適用
+- `time_seconds` に従う同一 episode 内補間、episode 境界の短い pause、および
+  Stop 時の最初の step への reset
+- history 選択、world 再構築、Play Mode 終了、別モード開始時の playback 停止
+- chunk 選択、欠落、episode 境界、clock、Stop reset の純粋ロジックテスト
+
 ## 完了した SDK スコープ
 
 - API と WebSocket の base URL だけを持つ `EmbodiedLabEndpoints`
@@ -240,6 +256,7 @@ job history、成果物 download と replay reader の resource budget 固定ま
 - 選択した Replay chunk の遅延 download
 - 固定環境の job lifecycle を一画面で確認できる importable Quickstart sample
 - exact scenario を可視化し、再起動後に job を復元できる sample-local history
+- 最新 deterministic evaluation chunk を同じ robot で再生する sample-local replay
 - facade の Unity Editor test と .NET compatibility / behavior test
 
 再利用可能なローカル履歴と Editor UI は EnvForge に残す。Unity Editor は CI や
@@ -247,7 +264,7 @@ EmbodiedLab の実行基盤へ追加しない。
 
 ## 次の段階
 
-1. Quickstart に Replay playback と ONNX inference を追加する。
+1. Quickstart に ONNX inference を追加する。
 2. 固定モードと 4 分割壁パーツ生成モードの選択を追加する。
 
 各段階を一つの Issue と小さな PR に分け、テストと lint が通った状態で次へ進む。

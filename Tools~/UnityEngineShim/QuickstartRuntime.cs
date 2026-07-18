@@ -80,7 +80,16 @@ namespace UnityEngine
     {
         public Vector3(float x, float y, float z)
         {
+            this.x = x;
+            this.y = y;
+            this.z = z;
         }
+
+        public float x { get; }
+
+        public float y { get; }
+
+        public float z { get; }
     }
 
     public readonly struct Quaternion
@@ -250,6 +259,11 @@ namespace UnityEngine
     public static class Application
     {
         public static string persistentDataPath => string.Empty;
+    }
+
+    public static class Time
+    {
+        public static float deltaTime => 0f;
     }
 
     public static class Debug

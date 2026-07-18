@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Canonical Quickstart world rendering and sample-local job history with
   restore, refresh, resumed monitoring, guarded cloud cancellation, safe local
   artifact paths, and record-only removal.
+- Quickstart replay download and playback using the latest deterministic
+  evaluation chunk, replay timestamps, episode pauses, and the shared robot.
 
 ### Security
 

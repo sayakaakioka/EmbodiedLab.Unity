@@ -16,7 +16,8 @@ EmbodiedLab のクラウド学習機能を EnvForge から切り離し、Unity
   ジョブ API、通信と成果物ダウンロードを所有する。
 - `EnvForge` は再利用可能な Editor UI、ローカルのジョブ履歴、シーン作成フローを
   所有し、クラウド操作にはこの SDK を利用する。SDK の Quickstart sample には、
-  restore と監視再開を説明するための最小限の sample-local 履歴だけを置く。
+  restore、監視再開、Replay artifact の再利用を説明するための最小限の
+  sample-local 履歴だけを置く。
 
 責務をまたぐ同じ実装や互換ラッパーは残さない。
 

@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Threading;
@@ -26,6 +27,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private CancellationTokenSource? monitorCancellation;
         private QuickstartHistoryStore? historyStore;
         private QuickstartWorldBuilder? worldBuilder;
+        private QuickstartReplayPlayer? replayPlayer;
         private QuickstartHistoryRecord? selectedHistoryRecord;
         private EmbodiedLabJob? job;
         private Vector2 historyScrollPosition;
@@ -35,6 +37,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private bool restoreRunning;
         private bool cancelRequestRunning;
         private bool modelDownloadRunning;
+        private bool replayDownloadRunning;
         private bool cancellationConfirmationArmed;
         private bool removalConfirmationArmed;
         private bool selectedHistoryRecordDirty;
@@ -57,6 +60,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                     "EmbodiedLabQuickstart",
                     "job-history.json"));
             worldBuilder = new QuickstartWorldBuilder();
+            replayPlayer = new QuickstartReplayPlayer();
 
             TryLoadHistory();
             TryBuildBundledScenario();
@@ -65,7 +69,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private void OnGUI()
         {
             RetryDirtyHistory();
-            GUILayout.BeginArea(new Rect(20, 20, 760, 740), GUI.skin.box);
+            GUILayout.BeginArea(new Rect(20, 20, 760, 900), GUI.skin.box);
             GUILayout.Label("EmbodiedLab Quickstart");
             GUILayout.Space(8);
 
@@ -88,6 +92,9 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             DrawButton("Submit and Train", CanSubmit(), StartSubmission);
             DrawCloudCancellation();
             DrawButton("Download Model", CanDownloadModel(), StartModelDownload);
+            DrawButton("Download Replay", CanDownloadReplay(), StartReplayDownload);
+            DrawButton("Play Replay", CanPlayReplay(), StartReplayPlayback);
+            DrawButton("Stop Replay", CanStopReplay(), StopReplayPlayback);
 
             GUILayout.Space(12);
             DrawValue("Submission ID", submissionIdText);
@@ -96,6 +103,10 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             DrawValue("Progress", progressText);
             DrawValue("Activity", activityText);
             DrawValue("Downloaded model", modelPathText);
+            DrawValue("Replay chunk", replayPlayer?.SelectedChunk ?? "-");
+            DrawValue("Replay episode", replayPlayer?.CurrentEpisode ?? "-");
+            DrawValue("Replay step", replayPlayer?.CurrentStep ?? "-");
+            DrawValue("Replay status", replayPlayer?.Status ?? "Unavailable");
             DrawValue("History storage", historyStorageText);
 
             GUILayout.Space(12);
@@ -108,6 +119,11 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             GUILayout.EndArea();
         }
 
+        private void Update()
+        {
+            replayPlayer?.Tick(Time.deltaTime);
+        }
+
         private void OnDestroy()
         {
             destroyed = true;
@@ -118,6 +134,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
             lifetimeCancellation?.Cancel();
             StopCurrentJob();
+            replayPlayer?.Clear();
+            replayPlayer = null;
             worldBuilder?.Dispose();
             worldBuilder = null;
             lifetimeCancellation?.Dispose();
@@ -211,6 +229,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 !restoreRunning &&
                 !cancelRequestRunning &&
                 !modelDownloadRunning &&
+                !replayDownloadRunning &&
                 !selectedHistoryRecordDirty &&
                 !cancellationConfirmationArmed &&
                 scenarioJson != null &&
@@ -227,7 +246,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 !submissionRequestRunning &&
                 !restoreRunning &&
                 !cancelRequestRunning &&
-                !modelDownloadRunning;
+                !modelDownloadRunning &&
+                !replayDownloadRunning;
         }
 
         private bool CanDownloadModel()
@@ -238,7 +258,37 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 !submissionRequestRunning &&
                 !restoreRunning &&
                 !cancelRequestRunning &&
-                !modelDownloadRunning;
+                !modelDownloadRunning &&
+                !replayDownloadRunning;
+        }
+
+        private bool CanDownloadReplay()
+        {
+            return !destroyed &&
+                job?.LatestResult?.Status == ResultStatus.Completed &&
+                selectedHistoryRecord != null &&
+                !submissionRequestRunning &&
+                !restoreRunning &&
+                !cancelRequestRunning &&
+                !modelDownloadRunning &&
+                !replayDownloadRunning;
+        }
+
+        private bool CanPlayReplay()
+        {
+            return !destroyed &&
+                replayPlayer?.IsLoaded == true &&
+                !replayPlayer.IsPlaying &&
+                !submissionRequestRunning &&
+                !restoreRunning &&
+                !cancelRequestRunning &&
+                !modelDownloadRunning &&
+                !replayDownloadRunning;
+        }
+
+        private bool CanStopReplay()
+        {
+            return !destroyed && replayPlayer?.IsLoaded == true;
         }
 
         private static bool UsesExampleEndpoint(string value)
@@ -261,6 +311,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             }
 
             submissionRequestRunning = true;
+            ClearReplayForModeChange();
             cancellationConfirmationArmed = false;
             removalConfirmationArmed = false;
             _ = SubmitAndMonitorAsync();
@@ -299,7 +350,43 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
             cancellationConfirmationArmed = false;
             removalConfirmationArmed = false;
+            replayPlayer?.Stop();
             _ = DownloadModelAsync();
+        }
+
+        private void StartReplayDownload()
+        {
+            if (!CanDownloadReplay())
+            {
+                return;
+            }
+
+            cancellationConfirmationArmed = false;
+            removalConfirmationArmed = false;
+            replayPlayer?.Stop();
+            _ = DownloadReplayAsync();
+        }
+
+        private void StartReplayPlayback()
+        {
+            if (!CanPlayReplay())
+            {
+                return;
+            }
+
+            replayPlayer!.Play();
+            activityText = "Replay playback started.";
+        }
+
+        private void StopReplayPlayback()
+        {
+            if (!CanStopReplay())
+            {
+                return;
+            }
+
+            replayPlayer!.Stop();
+            activityText = "Replay stopped at the first loaded step.";
         }
 
         private void StartHistorySelection(string submissionId)
@@ -310,6 +397,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             }
 
             restoreRunning = true;
+            ClearReplayForModeChange();
             cancellationConfirmationArmed = false;
             removalConfirmationArmed = false;
             _ = RestoreHistoryRecordAsync(submissionId);
@@ -439,6 +527,11 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 ResultDocument refreshed = await job!.RefreshAsync(
                     lifetimeCancellation.Token);
                 ApplyResult(refreshed);
+                if (refreshed.Status == ResultStatus.Completed)
+                {
+                    TryLoadPersistedReplay(record);
+                }
+
                 if (job.IsTerminal)
                 {
                     return;
@@ -560,6 +653,217 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             }
         }
 
+        private async Awaitable DownloadReplayAsync()
+        {
+            EmbodiedLabJob? activeJob = job;
+            QuickstartHistoryRecord? record = selectedHistoryRecord;
+            if (activeJob == null ||
+                record == null ||
+                lifetimeCancellation == null ||
+                historyStore == null ||
+                worldBuilder == null ||
+                replayPlayer == null)
+            {
+                return;
+            }
+
+            QuickstartReplayPlayer activeReplayPlayer = replayPlayer;
+            replayDownloadRunning = true;
+            try
+            {
+                activityText = "Refreshing the completed job before replay download...";
+                ResultDocument refreshed = await activeJob.RefreshAsync(
+                    lifetimeCancellation.Token);
+                if (!IsSelectedJob(activeJob, record))
+                {
+                    return;
+                }
+
+                ApplyResult(refreshed);
+                if (refreshed.Status != ResultStatus.Completed)
+                {
+                    throw new InvalidOperationException(
+                        "Replay download requires a completed cloud job.");
+                }
+
+                string manifestPath = QuickstartLocalPaths.GetReplayManifestPath(
+                    Application.persistentDataPath,
+                    activeJob.SubmissionId);
+                Directory.CreateDirectory(
+                    Path.GetDirectoryName(manifestPath) ?? throw new InvalidOperationException(
+                        "Replay manifest directory is unavailable."));
+
+                activityText = "Downloading replay manifest...";
+                await activeJob.DownloadReplayBundleAsync(
+                    manifestPath,
+                    lifetimeCancellation.Token);
+                if (!IsSelectedJob(activeJob, record))
+                {
+                    return;
+                }
+
+                ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(manifestPath);
+                ValidateReplayManifest(record, manifest);
+                ReplayBundleChunk selectedChunk =
+                    QuickstartReplayTimeline.SelectLatestDeterministicEvaluationChunk(
+                        manifest);
+                string chunkPath = QuickstartLocalPaths.GetReplayChunkPath(
+                    Application.persistentDataPath,
+                    activeJob.SubmissionId,
+                    selectedChunk.Path);
+                Directory.CreateDirectory(
+                    Path.GetDirectoryName(chunkPath) ?? throw new InvalidOperationException(
+                        "Replay chunk directory is unavailable."));
+
+                activityText = $"Downloading replay chunk {selectedChunk.Path}...";
+                await activeJob.DownloadReplayChunkAsync(
+                    selectedChunk,
+                    chunkPath,
+                    lifetimeCancellation.Token);
+                if (!IsSelectedJob(activeJob, record))
+                {
+                    return;
+                }
+
+                IReadOnlyList<ReplayLogStep> steps = EmbodiedLabReplay.ReadSteps(chunkPath);
+                QuickstartReplayTimeline.ValidateSelectedChunkSteps(
+                    activeJob.SubmissionId,
+                    manifest.ScenarioId,
+                    selectedChunk,
+                    steps);
+                LoadReplay(selectedChunk, steps);
+
+                record.LocalReplayManifestPath = manifestPath;
+                record.LocalReplayChunkPath = chunkPath;
+                selectedHistoryRecordDirty = true;
+                TryPersistHistoryRecord(record);
+                activityText = "Replay downloaded and ready.";
+            }
+            catch (OperationCanceledException)
+            {
+                if (!destroyed)
+                {
+                    activityText = "The local replay download stopped.";
+                }
+            }
+            catch (Exception exception)
+            {
+                activeReplayPlayer.Clear();
+                ReportError("Replay download failed", exception);
+            }
+            finally
+            {
+                replayDownloadRunning = false;
+            }
+        }
+
+        private void TryLoadPersistedReplay(QuickstartHistoryRecord record)
+        {
+            if (replayPlayer == null ||
+                string.IsNullOrWhiteSpace(record.LocalReplayManifestPath) ||
+                string.IsNullOrWhiteSpace(record.LocalReplayChunkPath))
+            {
+                return;
+            }
+
+            try
+            {
+                string expectedManifestPath = QuickstartLocalPaths.GetReplayManifestPath(
+                    Application.persistentDataPath,
+                    record.SubmissionId);
+                if (!PathsEqual(expectedManifestPath, record.LocalReplayManifestPath))
+                {
+                    throw new InvalidDataException(
+                        "Saved replay manifest path is outside Quickstart storage.");
+                }
+
+                ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(
+                    expectedManifestPath);
+                ValidateReplayManifest(record, manifest);
+                ReplayBundleChunk selectedChunk =
+                    QuickstartReplayTimeline.SelectLatestDeterministicEvaluationChunk(
+                        manifest);
+                string expectedChunkPath = QuickstartLocalPaths.GetReplayChunkPath(
+                    Application.persistentDataPath,
+                    record.SubmissionId,
+                    selectedChunk.Path);
+                if (!PathsEqual(expectedChunkPath, record.LocalReplayChunkPath))
+                {
+                    throw new InvalidDataException(
+                        "Saved replay chunk path does not match the selected manifest chunk.");
+                }
+
+                IReadOnlyList<ReplayLogStep> steps = EmbodiedLabReplay.ReadSteps(
+                    expectedChunkPath);
+                QuickstartReplayTimeline.ValidateSelectedChunkSteps(
+                    record.SubmissionId,
+                    manifest.ScenarioId,
+                    selectedChunk,
+                    steps);
+                LoadReplay(selectedChunk, steps);
+                activityText = "Saved replay loaded and ready.";
+            }
+            catch (Exception exception)
+            {
+                replayPlayer.Clear();
+                activityText = $"Saved replay unavailable: {exception.Message}";
+                Debug.LogException(exception, this);
+            }
+        }
+
+        private void LoadReplay(
+            ReplayBundleChunk selectedChunk,
+            IReadOnlyList<ReplayLogStep> steps)
+        {
+            Transform robot = worldBuilder?.RobotTransform ??
+                throw new InvalidOperationException(
+                    "The shared Quickstart robot is unavailable.");
+            QuickstartReplayPlayer player = replayPlayer ??
+                throw new InvalidOperationException("Replay player is unavailable.");
+            player.Load(robot, steps, selectedChunk.Path);
+        }
+
+        private static void ValidateReplayManifest(
+            QuickstartHistoryRecord record,
+            ReplayBundleManifest manifest)
+        {
+            if (!string.Equals(
+                manifest.JobId,
+                record.SubmissionId,
+                StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    "Replay manifest belongs to a different submission.");
+            }
+
+            ScenarioBundle scenario = ScenarioBundleJson.Deserialize(record.ScenarioJson);
+            if (!string.Equals(
+                manifest.ScenarioId,
+                scenario.ScenarioId,
+                StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    "Replay manifest belongs to a different scenario.");
+            }
+        }
+
+        private bool IsSelectedJob(
+            EmbodiedLabJob activeJob,
+            QuickstartHistoryRecord record)
+        {
+            return !destroyed &&
+                ReferenceEquals(job, activeJob) &&
+                ReferenceEquals(selectedHistoryRecord, record);
+        }
+
+        private static bool PathsEqual(string left, string right)
+        {
+            return string.Equals(
+                Path.GetFullPath(left),
+                Path.GetFullPath(right),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
         private void HandleResultUpdated(ResultDocument result)
         {
             ApplyResult(result);
@@ -642,6 +946,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
             try
             {
+                ClearReplayForModeChange();
                 ScenarioBundle scenario = ScenarioBundleJson.Deserialize(scenarioJson.text);
                 worldBuilder.Build(scenario);
             }
@@ -656,6 +961,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         {
             try
             {
+                ClearReplayForModeChange();
                 worldBuilder?.Build(scenario);
             }
             catch (Exception exception)
@@ -778,6 +1084,11 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             job = null;
         }
 
+        private void ClearReplayForModeChange()
+        {
+            replayPlayer?.Clear();
+        }
+
         private void DrawCloudCancellation()
         {
             if (!cancellationConfirmationArmed)
@@ -800,6 +1111,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 !restoreRunning &&
                 !cancelRequestRunning &&
                 !modelDownloadRunning &&
+                !replayDownloadRunning &&
                 !selectedHistoryRecordDirty;
         }
 
@@ -850,6 +1162,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             {
                 return;
             }
+
+            ClearReplayForModeChange();
 
             try
             {

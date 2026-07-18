@@ -20,6 +20,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         internal ScenarioBundle? Scenario { get; private set; }
 
+        internal Transform? RobotTransform { get; private set; }
+
         internal void Build(ScenarioBundle scenario)
         {
             if (scenario == null)
@@ -127,6 +129,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
             float radius = ToFloat(robot.Radius);
             GameObject visual = CreatePrimitive(PrimitiveType.Capsule, "Robot", RobotColor);
+            RobotTransform = visual.transform;
             visual.transform.position = new Vector3(
                 ToFloat(robot.StartPose.Position.X),
                 0.5f,
@@ -219,6 +222,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private void Clear()
         {
             Scenario = null;
+            RobotTransform = null;
             if (root != null)
             {
                 UnityEngine.Object.Destroy(root);
