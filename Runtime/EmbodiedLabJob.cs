@@ -330,6 +330,7 @@ namespace EmbodiedLab.Unity
             ArtifactLocation replayManifest,
             ReplayBundleChunk chunk)
         {
+            EmbodiedLabReplay.ValidateChunkMetadata(chunk);
             string manifestPath = RequireValue(
                 replayManifest.Path,
                 nameof(replayManifest.Path));

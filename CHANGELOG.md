@@ -23,3 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Canonical Quickstart world rendering and sample-local job history with
   restore, refresh, resumed monitoring, guarded cloud cancellation, safe local
   artifact paths, and record-only removal.
+
+### Security
+
+- Bound artifact downloads by format using both response metadata and streamed
+  byte counts, while preserving existing destinations and cleaning temporary
+  files on rejection or interruption.
+- Bound replay manifest metadata, gzip expansion, JSONL row size, and total
+  replay steps before untrusted artifacts can exhaust disk, memory, or CPU.

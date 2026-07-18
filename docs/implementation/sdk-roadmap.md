@@ -5,8 +5,8 @@
 キャンセル可能な v0 契約、WebSocket 優先の内部 transport、状態を持つ
 `EmbodiedLabJob` facade、用途別の最小シナリオ／リプレイ API、EnvForge
 の SDK 移行、固定環境の Quickstart sample、canonical world 表示、sample-local
-job history まで完了した。次は、Quickstart に Replay playback と ONNX inference
-を追加する段階である。
+job history、成果物 download と replay reader の resource budget 固定まで完了した。
+次は、Quickstart に Replay playback と ONNX inference を追加する段階である。
 
 ## 合意済みの設計
 
@@ -212,6 +212,20 @@ job history まで完了した。次は、Quickstart に Replay playback と ONN
 - Quickstart 専用の履歴 behavior test と、全 sample source の実 SDK API に対する
   .NET compatibility build
 - Replay playback、ONNX inference、固定／生成 map の選択は追加しない
+
+### 成果物 download と replay reader の resource limit
+
+[EmbodiedLab.Unity #26](https://github.com/sayakaakioka/EmbodiedLab.Unity/issues/26)
+で以下を固定した。
+
+- JSON は 1 MiB、JSONL／JSONL.GZ は 64 MiB、ONNX／ZIP は 1 GiB までとし、
+  `Content-Length` と実際の stream byte 数の両方で検証
+- 拒否または中断時の `.part` 削除と既存 destination の保持
+- replay manifest は 1 MiB、4,096 chunk、path 1,024文字、chunk ごとの宣言
+  step 数 100,000 までに制限
+- replay log は展開後 256 MiB、UTF-8 JSONL 1行 1 MiB、返却 step 数 100,000
+  までに制限
+- 公開 API や runtime 設定を増やさず、SDK 内部の固定 invariant として実装
 
 ## 完了した SDK スコープ
 

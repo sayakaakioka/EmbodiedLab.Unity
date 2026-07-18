@@ -142,6 +142,18 @@ Add `System.Collections.Generic` and `System.Linq` for the collection types and
 `First` call in this example. `EmbodiedLabReplay.ParseSteps` reads bundled or
 otherwise in-memory JSON Lines without creating a temporary file.
 
+Artifact and replay reads fail closed when their fixed resource budgets are
+exceeded. JSON artifacts are limited to 1 MiB, JSONL and compressed JSONL
+artifacts to 64 MiB, and ONNX or ZIP artifacts to 1 GiB. Downloads check both
+`Content-Length` and the bytes actually streamed. A rejected or interrupted
+download removes its temporary `.part` file and leaves an existing destination
+unchanged.
+
+Replay manifests are limited to 1 MiB, 4,096 chunks, 1,024 characters per chunk
+path, and 100,000 declared steps per chunk. Replay readers allow at most 256 MiB
+after decompression, 1 MiB per UTF-8 JSONL row, and 100,000 returned steps. These
+budgets are internal invariants rather than configurable public API.
+
 Persist both `SubmissionId` and `CancelToken` if a job must survive an Editor or
 application restart:
 

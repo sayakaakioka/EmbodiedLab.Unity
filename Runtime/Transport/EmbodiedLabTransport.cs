@@ -19,6 +19,9 @@ namespace EmbodiedLab.Unity.Internal
     {
         private const string JsonMediaType = "application/json";
         private const string PublicGcsBaseUrl = "https://storage.googleapis.com";
+        private const long MaximumJsonArtifactBytes = 1024L * 1024L;
+        private const long MaximumReplayArtifactBytes = 64L * 1024L * 1024L;
+        private const long MaximumModelArtifactBytes = 1024L * 1024L * 1024L;
 
         private static readonly JsonSerializerSettings SerializerSettings = new()
         {
@@ -207,6 +210,7 @@ namespace EmbodiedLab.Unity.Internal
             string requiredDestinationPath = RequireValue(
                 destinationPath,
                 nameof(destinationPath));
+            long maximumBytes = GetMaximumArtifactBytes(artifact.Format);
             string fullDestinationPath = Path.GetFullPath(requiredDestinationPath);
             string? directory = Path.GetDirectoryName(fullDestinationPath);
             if (!string.IsNullOrEmpty(directory))
@@ -241,7 +245,20 @@ namespace EmbodiedLab.Unity.Internal
                             "Artifact request URI is missing."));
                 }
 
+                long? contentLength = response.Content.Headers.ContentLength;
+                if (contentLength.HasValue && contentLength.Value > maximumBytes)
+                {
+                    throw new InvalidDataException(
+                        $"Artifact content length exceeds the maximum size of " +
+                        $"{maximumBytes} bytes for {artifact.Format}.");
+                }
+
                 using Stream source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                using var limitedSource = new ResourceLimitedReadStream(
+                    source,
+                    maximumBytes,
+                    $"{artifact.Format} artifact",
+                    leaveOpen: true);
                 using (var destination = new FileStream(
                     temporaryPath,
                     FileMode.CreateNew,
@@ -250,7 +267,7 @@ namespace EmbodiedLab.Unity.Internal
                     81920,
                     FileOptions.Asynchronous | FileOptions.SequentialScan))
                 {
-                    await source.CopyToAsync(destination, 81920, cancellationToken)
+                    await limitedSource.CopyToAsync(destination, 81920, cancellationToken)
                         .ConfigureAwait(false);
                 }
 
@@ -294,6 +311,22 @@ namespace EmbodiedLab.Unity.Internal
             return new Uri(
                 $"{PublicGcsBaseUrl}/{Uri.EscapeDataString(bucket)}/{escapedPath}",
                 UriKind.Absolute);
+        }
+
+        internal static long GetMaximumArtifactBytes(ArtifactFormat format)
+        {
+            return format switch
+            {
+                ArtifactFormat.Json => MaximumJsonArtifactBytes,
+                ArtifactFormat.Jsonl => MaximumReplayArtifactBytes,
+                ArtifactFormat.JsonlGz => MaximumReplayArtifactBytes,
+                ArtifactFormat.Onnx => MaximumModelArtifactBytes,
+                ArtifactFormat.Zip => MaximumModelArtifactBytes,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(format),
+                    format,
+                    "Unsupported artifact format."),
+            };
         }
 
         public void Dispose()

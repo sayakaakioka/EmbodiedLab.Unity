@@ -16,6 +16,11 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Bounded reconnect", TestReconnectDelayIsBoundedAsync),
     ("Local cancellation", TestLocalCancellationStopsMonitoringAsync),
     ("Artifact download", TestArtifactDownloadAsync),
+    ("Artifact format limits", TestArtifactFormatLimits),
+    ("Artifact content-length limit", TestOversizedArtifactContentLengthAsync),
+    ("Artifact streaming limit", TestOversizedStreamingArtifactAsync),
+    ("Incorrect artifact content length", TestIncorrectArtifactContentLengthAsync),
+    ("Interrupted artifact cleanup", TestInterruptedArtifactDownloadAsync),
     ("Stateful facade", TestStatefulFacadeAsync),
     ("Facade model selection", TestFacadeModelSelectionAsync),
     ("Facade replay chunk", TestFacadeReplayChunkAsync),
@@ -253,6 +258,122 @@ static async Task TestArtifactDownloadAsync()
     }
 }
 
+static Task TestArtifactFormatLimits()
+{
+    AssertEqual(
+        1024L * 1024L,
+        EmbodiedLabTransport.GetMaximumArtifactBytes(ArtifactFormat.Json),
+        "JSON artifact limit");
+    AssertEqual(
+        64L * 1024L * 1024L,
+        EmbodiedLabTransport.GetMaximumArtifactBytes(ArtifactFormat.Jsonl),
+        "JSONL artifact limit");
+    AssertEqual(
+        64L * 1024L * 1024L,
+        EmbodiedLabTransport.GetMaximumArtifactBytes(ArtifactFormat.JsonlGz),
+        "compressed JSONL artifact limit");
+    AssertEqual(
+        1024L * 1024L * 1024L,
+        EmbodiedLabTransport.GetMaximumArtifactBytes(ArtifactFormat.Onnx),
+        "ONNX artifact limit");
+    AssertEqual(
+        1024L * 1024L * 1024L,
+        EmbodiedLabTransport.GetMaximumArtifactBytes(ArtifactFormat.Zip),
+        "ZIP artifact limit");
+    return Task.CompletedTask;
+}
+
+static Task TestOversizedArtifactContentLengthAsync()
+{
+    var content = new ByteArrayContent(Array.Empty<byte>());
+    content.Headers.ContentLength = (1024L * 1024L) + 1L;
+    return AssertRejectedDownloadPreservesDestinationAsync<InvalidDataException>(
+        content,
+        "oversized content length");
+}
+
+static Task TestOversizedStreamingArtifactAsync()
+{
+    var content = new StreamContent(new RepeatingReadStream((1024L * 1024L) + 1L));
+    content.Headers.ContentLength = null;
+    return AssertRejectedDownloadPreservesDestinationAsync<InvalidDataException>(
+        content,
+        "oversized streaming response");
+}
+
+static Task TestIncorrectArtifactContentLengthAsync()
+{
+    var content = new StreamContent(new RepeatingReadStream((1024L * 1024L) + 1L));
+    content.Headers.ContentLength = 1;
+    return AssertRejectedDownloadPreservesDestinationAsync<InvalidDataException>(
+        content,
+        "incorrect content length");
+}
+
+static Task TestInterruptedArtifactDownloadAsync()
+{
+    var content = new StreamContent(new InterruptedReadStream(4096));
+    content.Headers.ContentLength = null;
+    return AssertRejectedDownloadPreservesDestinationAsync<IOException>(
+        content,
+        "interrupted response");
+}
+
+static async Task AssertRejectedDownloadPreservesDestinationAsync<TException>(
+    HttpContent content,
+    string description)
+    where TException : Exception
+{
+    byte[] existing = Encoding.UTF8.GetBytes("existing destination");
+    var handler = new RecordingHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+    {
+        Content = content,
+    });
+    using var transport = CreateTransport(handler, new QueueWebSocketFactory());
+    string directory = Path.Combine(
+        Path.GetTempPath(),
+        $"embodiedlab-download-limit-{Guid.NewGuid():N}");
+    string destination = Path.Combine(directory, "manifest.json");
+
+    try
+    {
+        Directory.CreateDirectory(directory);
+        await File.WriteAllBytesAsync(destination, existing);
+        bool rejected = false;
+        try
+        {
+            await transport.DownloadArtifactAsync(
+                new ArtifactLocation
+                {
+                    Bucket = "bucket-name",
+                    Path = "replay/manifest.json",
+                    Format = ArtifactFormat.Json,
+                    Storage = ArtifactStorage.Gcs,
+                },
+                destination,
+                CancellationToken.None);
+        }
+        catch (TException)
+        {
+            rejected = true;
+        }
+
+        AssertEqual(true, rejected, description);
+        AssertSequence(
+            existing,
+            await File.ReadAllBytesAsync(destination),
+            $"{description} destination bytes");
+        AssertEqual(false, File.Exists(destination + ".part"), $"{description} temporary file");
+    }
+    finally
+    {
+        if (Directory.Exists(directory))
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+}
+
 static async Task TestLocalCancellationStopsMonitoringAsync()
 {
     var handler = ResultHandler("running");
@@ -435,6 +556,33 @@ static async Task TestFacadeReplayChunkAsync()
         }
 
         AssertEqual(true, traversalRejected, "replay chunk traversal rejection");
+
+        bool pathLengthRejected = false;
+        try
+        {
+            chunk.Path = new string('p', 1025);
+            await job.DownloadReplayChunkAsync(chunk, destination);
+        }
+        catch (InvalidDataException)
+        {
+            pathLengthRejected = true;
+        }
+
+        AssertEqual(true, pathLengthRejected, "replay chunk path length rejection");
+
+        bool stepCountRejected = false;
+        try
+        {
+            chunk.Path = "eval/checkpoint_00005000.jsonl.gz";
+            chunk.StepCount = 100001;
+            await job.DownloadReplayChunkAsync(chunk, destination);
+        }
+        catch (InvalidDataException)
+        {
+            stepCountRejected = true;
+        }
+
+        AssertEqual(true, stepCountRejected, "replay chunk step count rejection");
     }
     finally
     {
@@ -592,6 +740,131 @@ internal sealed class RecordingHttpHandler : HttpMessageHandler
         Requests.Add(recorded);
         return responder(recorded);
     }
+}
+
+internal sealed class RepeatingReadStream : Stream
+{
+    private long remaining;
+
+    internal RepeatingReadStream(long length)
+    {
+        remaining = length;
+    }
+
+    public override bool CanRead => true;
+
+    public override bool CanSeek => false;
+
+    public override bool CanWrite => false;
+
+    public override long Length => throw new NotSupportedException();
+
+    public override long Position
+    {
+        get => throw new NotSupportedException();
+        set => throw new NotSupportedException();
+    }
+
+    public override int Read(byte[] buffer, int offset, int count)
+    {
+        int read = (int)Math.Min(remaining, count);
+        if (read == 0)
+        {
+            return 0;
+        }
+
+        Array.Fill(buffer, (byte)'x', offset, read);
+        remaining -= read;
+        return read;
+    }
+
+    public override Task<int> ReadAsync(
+        byte[] buffer,
+        int offset,
+        int count,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(Read(buffer, offset, count));
+    }
+
+    public override void Flush()
+    {
+    }
+
+    public override long Seek(long offset, SeekOrigin origin) =>
+        throw new NotSupportedException();
+
+    public override void SetLength(long value) => throw new NotSupportedException();
+
+    public override void Write(byte[] buffer, int offset, int count) =>
+        throw new NotSupportedException();
+}
+
+internal sealed class InterruptedReadStream : Stream
+{
+    private int bytesBeforeFailure;
+
+    internal InterruptedReadStream(int bytesBeforeFailure)
+    {
+        this.bytesBeforeFailure = bytesBeforeFailure;
+    }
+
+    public override bool CanRead => true;
+
+    public override bool CanSeek => false;
+
+    public override bool CanWrite => false;
+
+    public override long Length => throw new NotSupportedException();
+
+    public override long Position
+    {
+        get => throw new NotSupportedException();
+        set => throw new NotSupportedException();
+    }
+
+    public override int Read(byte[] buffer, int offset, int count)
+    {
+        if (bytesBeforeFailure == 0)
+        {
+            throw new IOException("Simulated interrupted artifact response.");
+        }
+
+        int read = Math.Min(bytesBeforeFailure, count);
+        Array.Fill(buffer, (byte)'x', offset, read);
+        bytesBeforeFailure -= read;
+        return read;
+    }
+
+    public override Task<int> ReadAsync(
+        byte[] buffer,
+        int offset,
+        int count,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            return Task.FromResult(Read(buffer, offset, count));
+        }
+        catch (Exception exception)
+        {
+            return Task.FromException<int>(exception);
+        }
+    }
+
+    public override void Flush()
+    {
+    }
+
+    public override long Seek(long offset, SeekOrigin origin) =>
+        throw new NotSupportedException();
+
+    public override void SetLength(long value) => throw new NotSupportedException();
+
+    public override void Write(byte[] buffer, int offset, int count) =>
+        throw new NotSupportedException();
 }
 
 internal sealed record ScriptedFrame(string Text, WebSocketMessageType MessageType);
