@@ -99,6 +99,12 @@ public async Awaitable RunTrainingAsync(
 }
 ```
 
+Remote deployments must use `https` for the API and `wss` for the result
+stream. Plaintext `http` and `ws` are accepted only when the parsed host is
+loopback (`localhost`, an IPv4 loopback address, or an IPv6 loopback address),
+so local development remains possible without exposing job data or cancellation
+capabilities over a remote plaintext connection.
+
 `SubmitAsync` creates the submission and starts training. Result monitoring uses
 the WebSocket stream while it is healthy; HTTP result reads are reserved for
 explicit `RefreshAsync` calls and recovery after a failed, disconnected, or

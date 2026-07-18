@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Require HTTPS and WSS for non-loopback deployment endpoints while preserving
+  HTTP and WS for parsed localhost, IPv4 loopback, and IPv6 loopback addresses.
 - Bound artifact downloads by format using both response metadata and streamed
   byte counts, while preserving existing destinations and cleaning temporary
   files on rejection or interruption.
