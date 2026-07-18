@@ -204,6 +204,18 @@ layer. They retain Newtonsoft.Json wire-name, enum, and discriminator metadata,
 but intentionally omit `DataAnnotations`. DTOs store only declared fields unless
 the upstream schema explicitly enables additional properties.
 
+Run the local Unity 6000.3 validation with:
+
+```bash
+python3 Tools~/run_unity_tests.py --unity-editor <path-to-unity-6000.3.11f1>
+```
+
+The runner stages the committed `Samples~/Quickstart` source into the disposable
+validation project, compiles it with Unity's real C# compiler, runs the package
+Editor tests and canonical-world hierarchy tests, and removes the staged sample
+after both successful and failed runs. Unity remains a local requirement; CI
+continues to run the Python and .NET checks without a licensed Editor.
+
 See [the product direction](docs/vision/product-direction.md) and
 [the implementation roadmap](docs/implementation/sdk-roadmap.md) for the
 current boundaries and progress.

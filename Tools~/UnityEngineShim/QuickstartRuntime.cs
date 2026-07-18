@@ -11,6 +11,10 @@ namespace UnityEngine
         public static void Destroy(Object target)
         {
         }
+
+        public static void DestroyImmediate(Object target)
+        {
+        }
     }
 
     public class Component : Object
@@ -258,6 +262,8 @@ namespace UnityEngine
 
     public static class Application
     {
+        public static bool isPlaying => false;
+
         public static string persistentDataPath => string.Empty;
     }
 

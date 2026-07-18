@@ -1,0 +1,22 @@
+{
+  "name": "EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests",
+  "rootNamespace": "EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests",
+  "references": [
+    "EmbodiedLab.Unity",
+    "EmbodiedLab.Unity.Samples.Quickstart"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}
