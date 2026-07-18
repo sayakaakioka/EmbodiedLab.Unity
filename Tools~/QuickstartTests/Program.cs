@@ -1,4 +1,5 @@
 using EmbodiedLab.Contracts;
+using EmbodiedLab.Unity;
 using EmbodiedLab.Unity.Samples.Quickstart;
 
 var tests = new (string Name, Action Run)[]
@@ -13,6 +14,16 @@ var tests = new (string Name, Action Run)[]
     ("Interrupted save recovery", TestInterruptedSaveRecovery),
     ("Safe submission directory", TestSafeSubmissionDirectory),
     ("Unsafe submission directory rejection", TestUnsafeSubmissionDirectory),
+    ("Latest deterministic evaluation chunk", TestReplayChunkSelection),
+    ("Missing deterministic evaluation chunk", TestMissingReplayChunk),
+    ("Selected replay chunk rows", TestSelectedReplayChunkRows),
+    ("Replay episode boundary", TestReplayEpisodeBoundary),
+    ("Replay non-consecutive step clock", TestReplayNonConsecutiveStepClock),
+    ("Replay playback clock", TestReplayPlaybackClock),
+    ("Replay stop reset", TestReplayStopReset),
+    ("Replay player stop reset", TestReplayPlayerStopReset),
+    ("Invalid replay values", TestInvalidReplayValues),
+    ("Replay local paths", TestReplayLocalPaths),
 };
 
 foreach ((string name, Action run) in tests)
@@ -21,7 +32,7 @@ foreach ((string name, Action run) in tests)
     Console.WriteLine($"PASS {name}");
 }
 
-Console.WriteLine($"Validated {tests.Length} Quickstart history behaviors.");
+Console.WriteLine($"Validated {tests.Length} Quickstart behaviors.");
 return 0;
 
 static void TestRoundTrip()
@@ -274,6 +285,337 @@ static void TestUnsafeSubmissionDirectory()
     }
 }
 
+static void TestReplayChunkSelection()
+{
+    ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(
+        FixturePath("navigation_replay_bundle_manifest.json"));
+
+    ReplayBundleChunk canonical =
+        QuickstartReplayTimeline.SelectLatestDeterministicEvaluationChunk(manifest);
+
+    AssertEqual(5000, canonical.CheckpointStep, "canonical replay checkpoint");
+    AssertEqual(
+        "eval/checkpoint_00005000.jsonl.gz",
+        canonical.Path,
+        "canonical replay chunk");
+
+    var latest = new ReplayBundleChunk
+    {
+        Phase = ReplayBundleChunkPhase.Eval,
+        PolicyMode = ReplayBundleChunkPolicyMode.Deterministic,
+        CheckpointStep = 6000,
+        Path = "eval/checkpoint_00006000.jsonl.gz",
+        Format = ReplayBundleChunkFormat.JsonlGz,
+        StepCount = 1,
+    };
+    manifest.Chunks.Add(latest);
+
+    AssertEqual(
+        latest,
+        QuickstartReplayTimeline.SelectLatestDeterministicEvaluationChunk(manifest),
+        "latest deterministic evaluation chunk");
+}
+
+static void TestMissingReplayChunk()
+{
+    var manifest = new ReplayBundleManifest
+    {
+        JobId = "submission-1",
+        ScenarioId = "scenario-1",
+        Chunks = new List<ReplayBundleChunk>
+        {
+            new()
+            {
+                Phase = ReplayBundleChunkPhase.Train,
+                PolicyMode = ReplayBundleChunkPolicyMode.Stochastic,
+                CheckpointStep = 1,
+                Path = "train/chunk.jsonl.gz",
+                Format = ReplayBundleChunkFormat.JsonlGz,
+                StepCount = 1,
+            },
+        },
+    };
+
+    AssertThrows<InvalidOperationException>(
+        () => QuickstartReplayTimeline.SelectLatestDeterministicEvaluationChunk(manifest));
+}
+
+static void TestSelectedReplayChunkRows()
+{
+    ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(
+        FixturePath("navigation_replay_bundle_manifest.json"));
+    ReplayBundleChunk selectedChunk =
+        QuickstartReplayTimeline.SelectLatestDeterministicEvaluationChunk(manifest);
+    IReadOnlyList<ReplayLogStep> steps = EmbodiedLabReplay.ReadSteps(
+        FixturePath("navigation_default_replay_log.jsonl"));
+    SetCheckpoint(steps, selectedChunk.CheckpointStep);
+
+    QuickstartReplayTimeline.ValidateSelectedChunkSteps(
+        manifest.JobId,
+        manifest.ScenarioId,
+        selectedChunk,
+        steps);
+
+    AssertInvalid((chunk, rows) => rows[0].JobId = "other-submission");
+    AssertInvalid((chunk, rows) => rows[0].ScenarioId = "other-scenario");
+    AssertInvalid((chunk, rows) => rows[0].Phase = "train");
+    AssertInvalid((chunk, rows) => rows[0].PolicyMode = "stochastic");
+    AssertInvalid(
+        (chunk, rows) => rows[0].CheckpointStep = chunk.CheckpointStep - 1);
+    AssertInvalid((chunk, rows) => chunk.StepCount++);
+
+    static void AssertInvalid(
+        Action<ReplayBundleChunk, IReadOnlyList<ReplayLogStep>> mutate)
+    {
+        ReplayBundleManifest candidateManifest = EmbodiedLabReplay.ReadManifest(
+            FixturePath("navigation_replay_bundle_manifest.json"));
+        ReplayBundleChunk candidateChunk =
+            QuickstartReplayTimeline.SelectLatestDeterministicEvaluationChunk(
+                candidateManifest);
+        IReadOnlyList<ReplayLogStep> candidateSteps = EmbodiedLabReplay.ReadSteps(
+            FixturePath("navigation_default_replay_log.jsonl"));
+        SetCheckpoint(candidateSteps, candidateChunk.CheckpointStep);
+        mutate(candidateChunk, candidateSteps);
+
+        AssertThrows<InvalidDataException>(
+            () => QuickstartReplayTimeline.ValidateSelectedChunkSteps(
+                candidateManifest.JobId,
+                candidateManifest.ScenarioId,
+                candidateChunk,
+                candidateSteps));
+    }
+
+    static void SetCheckpoint(IReadOnlyList<ReplayLogStep> rows, int checkpointStep)
+    {
+        foreach (ReplayLogStep row in rows)
+        {
+            row.CheckpointStep = checkpointStep;
+        }
+    }
+}
+
+static void TestReplayEpisodeBoundary()
+{
+    ReplayLogStep first = CreateReplayStep("episode-1", 0, 0D, 0D, 0D, 0D);
+    ReplayLogStep sameEpisode = CreateReplayStep("episode-1", 1, 0.1D, 1D, 0D, 10D);
+    ReplayLogStep nextEpisode = CreateReplayStep("episode-2", 0, 0D, 2D, 0D, 20D);
+
+    AssertEqual(
+        false,
+        QuickstartReplayTimeline.IsEpisodeBoundary(first, sameEpisode),
+        "same episode boundary");
+    AssertEqual(
+        true,
+        QuickstartReplayTimeline.IsEpisodeBoundary(sameEpisode, nextEpisode),
+        "next episode boundary");
+    ReplayLogStep skippedStep = CreateReplayStep("episode-1", 3, 0.3D, 3D, 0D, 30D);
+    AssertEqual(
+        false,
+        QuickstartReplayTimeline.CanInterpolate(sameEpisode, skippedStep),
+        "non-consecutive steps");
+    AssertEqual(
+        true,
+        QuickstartReplayTimeline.CanInterpolate(first, sameEpisode),
+        "consecutive same-episode steps");
+
+    var timeline = new QuickstartReplayTimeline(
+        new[] { first, sameEpisode, nextEpisode });
+    timeline.Play();
+    QuickstartReplayFrame pauseFrame = timeline.Advance(0.1D);
+    AssertEqual(true, timeline.IsEpisodePause, "episode pause active");
+    AssertEqual(1, pauseFrame.FromStep.StepIndex, "episode pause step");
+
+    QuickstartReplayFrame nextEpisodeFrame = timeline.Advance(
+        QuickstartReplayTimeline.EpisodePauseSeconds);
+    AssertEqual("episode-2", nextEpisodeFrame.FromStep.EpisodeId, "next episode");
+    AssertEqual(0, nextEpisodeFrame.FromStep.StepIndex, "next episode first step");
+}
+
+static void TestReplayPlaybackClock()
+{
+    IReadOnlyList<ReplayLogStep> canonicalSteps = EmbodiedLabReplay.ReadSteps(
+        FixturePath("navigation_default_replay_log.jsonl"));
+    var timeline = new QuickstartReplayTimeline(canonicalSteps);
+
+    timeline.Play();
+    QuickstartReplayFrame frame = timeline.Advance(0.025D);
+
+    AssertEqual(0, frame.FromStep.StepIndex, "clock from step");
+    AssertEqual(1, frame.ToStep.StepIndex, "clock to step");
+    AssertNear(0.25D, frame.Interpolation, "clock interpolation");
+    AssertNear(-5.995D, frame.Interpolate(-6D, -5.98D), "interpolated x");
+}
+
+static void TestReplayNonConsecutiveStepClock()
+{
+    var timeline = new QuickstartReplayTimeline(
+        new[]
+        {
+            CreateReplayStep("episode-1", 0, 0D, 0D, 0D, 0D),
+            CreateReplayStep("episode-1", 2, 1D, 2D, 0D, 20D),
+        });
+
+    timeline.Play();
+    QuickstartReplayFrame held = timeline.Advance(0.25D);
+    AssertEqual(0, held.FromStep.StepIndex, "gap holds previous step");
+    AssertEqual(0, held.ToStep.StepIndex, "gap does not interpolate");
+
+    QuickstartReplayFrame snapped = timeline.Advance(0.75D);
+    AssertEqual(2, snapped.FromStep.StepIndex, "gap snaps at next timestamp");
+}
+
+static void TestReplayStopReset()
+{
+    var timeline = new QuickstartReplayTimeline(
+        new[]
+        {
+            CreateReplayStep("episode-1", 0, 0D, 0D, 0D, 350D),
+            CreateReplayStep("episode-1", 1, 1D, 1D, 0D, 10D),
+        });
+
+    timeline.Play();
+    QuickstartReplayFrame playing = timeline.Advance(0.5D);
+    AssertNear(360D, playing.InterpolateAngleDegrees(350D, 10D), "short yaw path");
+    AssertNear(
+        0D,
+        new QuickstartReplayFrame(
+            CreateReplayStep("episode-1", 0, 0D, 0D, 0D, 720D),
+            CreateReplayStep("episode-1", 1, 1D, 0D, 0D, 0D),
+            0.5D).InterpolateAngleDegrees(720D, 0D),
+        "unnormalized yaw path");
+
+    QuickstartReplayFrame stopped = timeline.Stop();
+    AssertEqual(false, timeline.IsPlaying, "stopped replay");
+    AssertEqual(0, stopped.FromStep.StepIndex, "reset step");
+    AssertNear(0D, stopped.Interpolation, "reset interpolation");
+}
+
+static void TestReplayPlayerStopReset()
+{
+    var robotObject = new UnityEngine.GameObject("Robot");
+    robotObject.transform.position = new UnityEngine.Vector3(0F, 0.5F, 0F);
+    var player = new QuickstartReplayPlayer();
+    player.Load(
+        robotObject.transform,
+        new[]
+        {
+            CreateReplayStep("episode-1", 0, 0D, 1D, 2D, 0D),
+            CreateReplayStep("episode-1", 1, 1D, 3D, 4D, 90D),
+        },
+        "eval/chunk.jsonl.gz");
+
+    player.Play();
+    player.Tick(0.5D);
+    AssertNear(2D, robotObject.transform.position.x, "player moved robot x");
+    AssertNear(3D, robotObject.transform.position.z, "player moved robot z");
+
+    player.Stop();
+    AssertNear(1D, robotObject.transform.position.x, "player reset robot x");
+    AssertNear(2D, robotObject.transform.position.z, "player reset robot z");
+    AssertNear(0.5D, robotObject.transform.position.y, "player retained robot height");
+}
+
+static void TestInvalidReplayValues()
+{
+    ReplayLogStep invalid = CreateReplayStep(
+        "episode-1",
+        0,
+        0D,
+        double.NaN,
+        0D,
+        0D);
+    AssertThrows<ArgumentException>(
+        () => new QuickstartReplayTimeline(new[] { invalid }));
+    ReplayLogStep tooLarge = CreateReplayStep(
+        "episode-1",
+        0,
+        0D,
+        double.MaxValue,
+        0D,
+        0D);
+    AssertThrows<ArgumentException>(
+        () => new QuickstartReplayTimeline(new[] { tooLarge }));
+}
+
+static void TestReplayLocalPaths()
+{
+    string root = Path.Combine(Path.GetTempPath(), "embodiedlab-replay-path-test");
+    string manifestPath = QuickstartLocalPaths.GetReplayManifestPath(root, "submission-1");
+    string chunkPath = QuickstartLocalPaths.GetReplayChunkPath(
+        root,
+        "submission-1",
+        "eval/checkpoint_00005000.jsonl.gz");
+
+    AssertEqual(
+        Path.GetFullPath(
+            Path.Combine(
+                root,
+                "EmbodiedLabQuickstart",
+                "submission-1",
+                "replay",
+                "manifest.json")),
+        manifestPath,
+        "replay manifest path");
+    AssertEqual(
+        Path.GetFullPath(
+            Path.Combine(
+                root,
+                "EmbodiedLabQuickstart",
+                "submission-1",
+                "replay",
+                "eval",
+                "checkpoint_00005000.jsonl.gz")),
+        chunkPath,
+        "replay chunk path");
+
+    foreach (string unsafePath in new[]
+             {
+                 "../escape.jsonl.gz",
+                 "eval/../escape.jsonl.gz",
+                 "eval\\escape.jsonl.gz",
+                 "/absolute.jsonl.gz",
+                 "eval/file.jsonl.gz?query=1",
+                 "eval/C:drive.jsonl.gz",
+             })
+    {
+        AssertThrows<InvalidDataException>(
+            () => QuickstartLocalPaths.GetReplayChunkPath(
+                root,
+                "submission-1",
+                unsafePath));
+    }
+}
+
+static ReplayLogStep CreateReplayStep(
+    string episodeId,
+    int stepIndex,
+    double timeSeconds,
+    double x,
+    double z,
+    double yaw)
+{
+    return new ReplayLogStep
+    {
+        JobId = "submission-1",
+        ScenarioId = "scenario-1",
+        EpisodeId = episodeId,
+        StepIndex = stepIndex,
+        TimeSeconds = timeSeconds,
+        Phase = "eval",
+        PolicyMode = "deterministic",
+        Robot = new ReplayRobotState
+        {
+            Position = new ReplayPosition { X = x, Z = z },
+            RotationYDegrees = yaw,
+        },
+    };
+}
+
+static string FixturePath(string filename)
+{
+    return Path.Combine(AppContext.BaseDirectory, "Fixtures", filename);
+}
+
 static QuickstartHistoryRecord CreateRecord(string submissionId, string submittedAtUtc)
 {
     return new QuickstartHistoryRecord
@@ -329,4 +671,13 @@ static void AssertThrows<TException>(Action action)
 
     throw new InvalidOperationException(
         $"Expected {typeof(TException).Name}, but no matching exception was thrown.");
+}
+
+static void AssertNear(double expected, double actual, string description)
+{
+    if (Math.Abs(expected - actual) > 0.000001D)
+    {
+        throw new InvalidOperationException(
+            $"Expected {description} to be '{expected}', but received '{actual}'.");
+    }
 }

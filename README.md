@@ -18,7 +18,8 @@ shared by EnvForge and custom Unity frontends. The first supported workflow is:
 
 Reusable Editor UI, application-level job history, and EnvForge-specific scene
 authoring remain in [EnvForge](https://github.com/sayakaakioka/EnvForge). The
-Quickstart includes sample-local history only to teach restore and monitoring.
+Quickstart includes sample-local history only to teach restore, monitoring, and
+replay artifact reuse.
 Server behavior and the source contract models remain in
 [EmbodiedLab](https://github.com/sayakaakioka/EmbodiedLab).
 
@@ -49,8 +50,11 @@ The sample builds a visible navigation world from the exact included scenario,
 submits it, displays WebSocket result updates, requests cloud cancellation, and
 downloads a completed ONNX model under `Application.persistentDataPath`. Its
 sample-local history restores prior jobs and resumes monitoring across restarts.
+For a completed record, **Download Replay** retrieves the manifest and only its
+latest deterministic evaluation chunk. **Play Replay** drives the same visible
+robot from replay time, and **Stop Replay** resets it to the first loaded step.
 The sample intentionally does not include EnvForge's scene authoring, reusable
-history UI, replay playback, or model inference.
+history UI, or model inference.
 
 ## Quick start
 
