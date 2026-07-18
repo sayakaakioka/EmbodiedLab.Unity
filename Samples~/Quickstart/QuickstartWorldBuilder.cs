@@ -225,16 +225,28 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             RobotTransform = null;
             if (root != null)
             {
-                UnityEngine.Object.Destroy(root);
+                DestroyObject(root);
                 root = null;
             }
 
             foreach (Material material in materials)
             {
-                UnityEngine.Object.Destroy(material);
+                DestroyObject(material);
             }
 
             materials.Clear();
+        }
+
+        private static void DestroyObject(UnityEngine.Object value)
+        {
+            if (Application.isPlaying)
+            {
+                UnityEngine.Object.Destroy(value);
+            }
+            else
+            {
+                UnityEngine.Object.DestroyImmediate(value);
+            }
         }
     }
 }
