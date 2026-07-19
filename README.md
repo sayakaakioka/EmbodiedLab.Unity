@@ -28,6 +28,11 @@ Server behavior and the source contract models remain in
 - Unity 6000.3 or later
 - Git 2.14 or later when installing from a Git URL
 
+Direct ONNX inference in the Quickstart is initially verified only with Unity
+6000.3.11f1 on Windows x64 Editor and Windows x64 Standalone. The package owns
+the required CPU ONNX Runtime 1.24.4 managed and native binaries; no separate
+ONNX Runtime or Sentis installation is required on that target.
+
 ## Installation
 
 Until versioned releases are available, add the repository from Unity Package
@@ -53,8 +58,11 @@ sample-local history restores prior jobs and resumes monitoring across restarts.
 For a completed record, **Download Replay** retrieves the manifest and only its
 latest deterministic evaluation chunk. **Play Replay** drives the same visible
 robot from replay time, and **Stop Replay** resets it to the first loaded step.
-The sample intentionally does not include EnvForge's scene authoring, reusable
-history UI, or model inference.
+**Run Inference** loads the selected downloaded `policy.onnx`, observes the same
+world through the robot's semantic camera, and moves that same robot. **Stop
+Inference** releases ONNX Runtime resources and resets the robot to the submitted
+start pose. Replay and inference are mutually exclusive. The sample intentionally
+does not include EnvForge's scene authoring or reusable history UI.
 
 ## Quick start
 
@@ -216,6 +224,25 @@ Run the local Unity 6000.3 validation with:
 python3 Tools~/run_unity_tests.py --unity-editor <path-to-unity-6000.3.11f1>
 ```
 
+Pass a real completed EmbodiedLab model and keep graphics enabled to exercise
+the semantic camera and ONNX session in the Editor:
+
+```bash
+python3 Tools~/run_unity_tests.py \
+  --unity-editor <path-to-unity-6000.3.11f1> \
+  --policy <path-to-policy.onnx> \
+  --with-graphics
+```
+
+Build and launch the Windows x64 player smoke test with the same real model:
+
+```bash
+python3 Tools~/run_unity_standalone_smoke.py \
+  --unity-editor <path-to-unity-6000.3.11f1> \
+  --policy <path-to-policy.onnx> \
+  --output-directory <temporary-output-directory>
+```
+
 The runner stages the committed `Samples~/Quickstart` source into the disposable
 validation project, compiles it with Unity's real C# compiler, runs the package
 Editor tests and canonical-world hierarchy tests, and removes the staged sample
@@ -230,3 +257,6 @@ current boundaries and progress.
 
 A repository license has not been selected yet. Treat the current source as
 pre-release material until licensing is resolved.
+
+The bundled ONNX Runtime dependency has its own upstream MIT license and
+third-party notices under `Runtime/Plugins/ONNXRuntime/`.

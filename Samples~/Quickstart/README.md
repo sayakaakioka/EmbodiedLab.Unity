@@ -16,7 +16,8 @@ training flow without depending on EnvForge.
 7. Select **Cancel Cloud Job**, verify the read-only cloud target, and confirm
    the operation to stop an active remote job. Select **Download Model** after
    training completes. For a completed record, select **Download Replay**,
-   then use **Play Replay** and **Stop Replay**.
+   then use **Play Replay** and **Stop Replay**. Select **Run Inference** to run
+   the downloaded model and **Stop Inference** to release it and reset the robot.
 
 The model is saved to:
 
@@ -36,10 +37,41 @@ boundaries have a short pause. **Stop Replay**, history selection, world
 rebuild, and leaving Play Mode stop playback; **Stop Replay** resets the robot
 to the first loaded step.
 
+## Run the downloaded policy
+
+The inference flow is deliberately direct and sample-local:
+
+1. **Download Model** stores the completed job's canonical `policy.onnx`.
+2. **Run Inference** stops replay and resets the shared robot to the exact start
+   pose in the submitted scenario.
+3. One cached ONNX Runtime 1.24.4 CPU session loads that file.
+4. Every 0.1 seconds, the robot's submitted `ForwardCameraSensor` renders a
+   112x84 semantic image. Traversable space is green; blocked geometry and the
+   background are blue; the robot and goal are hidden. The readback is flipped
+   vertically and normalized into channel-first `obs_0` values.
+5. `obs_1` contains signed relative goal angle in `[-180, 180]` degrees and
+   straight-line goal distance in meters.
+6. Output index 0 is clamped to forward `[0, 1]`, and index 1 is clamped to turn
+   `[-1, 1]`. Any clamp remains visible as a contract violation.
+7. Each decision applies at most 0.2 meters forward and 15 degrees of turn.
+
+The model must expose exactly float `obs_0` (`3x84x112`, with an optional batch)
+and float `obs_1` (two values, with an optional batch), plus a float output with
+at least two actions. Incompatible metadata, malformed values, native runtime
+failures, missing graphics, wall collision, and goal reach stop inference with
+an explicit status. **Stop Inference**, history selection, world rebuild, and
+leaving Play Mode dispose the session and camera resources and reset the robot
+to the submitted start pose.
+
+Replay and inference always use the same visible world and robot and cannot run
+simultaneously. This package includes the CPU ONNX Runtime binaries needed for
+Unity 6000.3 on Windows x64 Editor and Standalone. That is the only initially
+verified target; no Sentis or model-format fallback is present.
+
 `NavigationScenario.json` is both the exact fixed scenario submitted by this
 sample and the source for its visible floor, walls, obstacles, robot start,
-goal, overview camera, and light. Edit that contract JSON to try another fixed
-map. The sample does not run the downloaded policy.
+goal, forward semantic camera, overview camera, and light. Edit that contract
+JSON to try another fixed map.
 
 The sample stores resumable job records newest-first at:
 

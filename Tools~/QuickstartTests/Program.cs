@@ -24,6 +24,12 @@ var tests = new (string Name, Action Run)[]
     ("Replay player stop reset", TestReplayPlayerStopReset),
     ("Invalid replay values", TestInvalidReplayValues),
     ("Replay local paths", TestReplayLocalPaths),
+    ("ONNX contract accepted shapes", TestOnnxContractAcceptedShapes),
+    ("ONNX contract rejected metadata", TestOnnxContractRejectedMetadata),
+    ("Goal observation", TestGoalObservation),
+    ("RGB vertical flip and CHW conversion", TestImageConversion),
+    ("Action contract", TestActionContract),
+    ("Replay and inference mutual exclusion", TestModeMutualExclusion),
 };
 
 foreach ((string name, Action run) in tests)
@@ -541,6 +547,7 @@ static void TestReplayLocalPaths()
 {
     string root = Path.Combine(Path.GetTempPath(), "embodiedlab-replay-path-test");
     string manifestPath = QuickstartLocalPaths.GetReplayManifestPath(root, "submission-1");
+    string modelPath = QuickstartLocalPaths.GetModelPath(root, "submission-1");
     string chunkPath = QuickstartLocalPaths.GetReplayChunkPath(
         root,
         "submission-1",
@@ -556,6 +563,15 @@ static void TestReplayLocalPaths()
                 "manifest.json")),
         manifestPath,
         "replay manifest path");
+    AssertEqual(
+        Path.GetFullPath(
+            Path.Combine(
+                root,
+                "EmbodiedLabQuickstart",
+                "submission-1",
+                "policy.onnx")),
+        modelPath,
+        "model path");
     AssertEqual(
         Path.GetFullPath(
             Path.Combine(
@@ -584,6 +600,172 @@ static void TestReplayLocalPaths()
                 "submission-1",
                 unsafePath));
     }
+}
+
+static void TestOnnxContractAcceptedShapes()
+{
+    QuickstartOnnxContract unbatched = QuickstartOnnxContract.Validate(
+        new[]
+        {
+            Tensor("obs_0", true, 3, 84, 112),
+            Tensor("obs_1", true, 2),
+        },
+        new[] { Tensor("actions", true, 2) });
+    AssertEqual(3, unbatched.ImageDimensions.Length, "unbatched image rank");
+    AssertEqual(1, unbatched.NumericDimensions.Length, "unbatched numeric rank");
+    AssertEqual("actions", unbatched.OutputName, "output name");
+
+    QuickstartOnnxContract batched = QuickstartOnnxContract.Validate(
+        new[]
+        {
+            Tensor("obs_1", true, -1, 2),
+            Tensor("obs_0", true, -1, 3, 84, 112),
+        },
+        new[] { Tensor("action", true, -1, 2) });
+    AssertEqual(1, batched.ImageDimensions[0], "resolved image batch");
+    AssertEqual(1, batched.NumericDimensions[0], "resolved numeric batch");
+}
+
+static void TestOnnxContractRejectedMetadata()
+{
+    AssertThrows<InvalidDataException>(
+        () => QuickstartOnnxContract.Validate(
+            new[]
+            {
+                Tensor("obs_0", true, 3, 84, 112),
+                Tensor("obs_1", true, 2),
+                Tensor("extra", true, 1),
+            },
+            new[] { Tensor("actions", true, 2) }));
+    AssertThrows<InvalidDataException>(
+        () => QuickstartOnnxContract.Validate(
+            new[]
+            {
+                Tensor("obs_0", true, 3, 84, 111),
+                Tensor("obs_1", true, 2),
+            },
+            new[] { Tensor("actions", true, 2) }));
+    AssertThrows<InvalidDataException>(
+        () => QuickstartOnnxContract.Validate(
+            new[]
+            {
+                Tensor("obs_0", false, 3, 84, 112),
+                Tensor("obs_1", true, 2),
+            },
+            new[] { Tensor("actions", true, 2) }));
+    AssertThrows<InvalidDataException>(
+        () => QuickstartOnnxContract.Validate(
+            new[]
+            {
+                Tensor("obs_0", true, 3, 84, 112),
+                Tensor("obs_1", true, 2),
+            },
+            new[] { Tensor("actions", false, 2) }));
+    AssertThrows<InvalidDataException>(
+        () => QuickstartOnnxContract.Validate(
+            new[]
+            {
+                Tensor("obs_0", true, 3, 84, 112),
+                Tensor("obs_1", true, 2),
+            },
+            new[] { Tensor("actions", true, 1) }));
+}
+
+static void TestGoalObservation()
+{
+    var values = new float[2];
+    QuickstartInferenceMath.WriteNumericObservation(
+        new UnityEngine.Vector3(0f, 0f, 0f),
+        170f,
+        new UnityEngine.Vector3(-1f, 0f, -1f),
+        values);
+    AssertNear(55D, values[0], "signed relative goal angle");
+    AssertNear(Math.Sqrt(2D), values[1], "goal distance");
+
+    QuickstartInferenceMath.WriteNumericObservation(
+        new UnityEngine.Vector3(0f, 0f, 0f),
+        -170f,
+        new UnityEngine.Vector3(1f, 0f, -1f),
+        values);
+    AssertNear(-55D, values[0], "wrapped negative goal angle");
+}
+
+static void TestImageConversion()
+{
+    var source = new[]
+    {
+        new UnityEngine.Color32(255, 0, 0, 255),
+        new UnityEngine.Color32(0, 255, 0, 255),
+        new UnityEngine.Color32(0, 0, 255, 255),
+        new UnityEngine.Color32(255, 255, 255, 255),
+    };
+    var destination = new float[12];
+    QuickstartInferenceMath.ConvertRgbToVerticallyFlippedChw(
+        source,
+        2,
+        2,
+        destination);
+
+    float[] expected =
+    {
+        0f, 1f, 1f, 0f,
+        0f, 1f, 0f, 1f,
+        1f, 1f, 0f, 0f,
+    };
+    for (int index = 0; index < expected.Length; index++)
+    {
+        AssertNear(expected[index], destination[index], $"CHW value {index}");
+    }
+}
+
+static void TestActionContract()
+{
+    QuickstartAppliedAction valid = QuickstartInferenceMath.ApplyActionContract(
+        new QuickstartRawAction(0.25f, -0.5f));
+    AssertEqual(false, valid.ContractViolation, "valid action contract");
+    AssertNear(0.25D, valid.Forward, "valid forward action");
+    AssertNear(-0.5D, valid.Turn, "valid turn action");
+
+    QuickstartAppliedAction clamped = QuickstartInferenceMath.ApplyActionContract(
+        new QuickstartRawAction(-2f, 3f));
+    AssertEqual(true, clamped.ContractViolation, "invalid action contract");
+    AssertNear(0D, clamped.Forward, "clamped forward action");
+    AssertNear(1D, clamped.Turn, "clamped turn action");
+    if (!clamped.FormatSummary().Contains("CONTRACT VIOLATION", StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException("Action violation summary is not visible.");
+    }
+
+    AssertThrows<InvalidDataException>(
+        () => QuickstartInferenceMath.ApplyActionContract(
+            new QuickstartRawAction(float.NaN, 0f)));
+}
+
+static void TestModeMutualExclusion()
+{
+    int replayStops = 0;
+    int inferenceStops = 0;
+    var coordinator = new QuickstartModeCoordinator(
+        () => replayStops++,
+        () => inferenceStops++);
+
+    coordinator.EnterReplay();
+    AssertEqual(0, replayStops, "replay start retains replay");
+    AssertEqual(1, inferenceStops, "replay start stops inference");
+    coordinator.EnterInference();
+    AssertEqual(1, replayStops, "inference start stops replay");
+    AssertEqual(1, inferenceStops, "inference start retains inference");
+    coordinator.Clear();
+    AssertEqual(2, replayStops, "clear stops replay");
+    AssertEqual(2, inferenceStops, "clear stops inference");
+}
+
+static QuickstartTensorMetadata Tensor(
+    string name,
+    bool isFloat,
+    params int[] dimensions)
+{
+    return new QuickstartTensorMetadata(name, isFloat, dimensions);
 }
 
 static ReplayLogStep CreateReplayStep(

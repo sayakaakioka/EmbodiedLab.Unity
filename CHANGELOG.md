@@ -27,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   evaluation chunk, replay timestamps, episode pauses, and the shared robot.
 - Local Unity validation that imports and compiles the real Quickstart sample
   and asserts the canonical world's contract-derived hierarchy and transforms.
+- Package-owned CPU ONNX Runtime 1.24.4 binaries, upstream license/notices, and
+  Windows x64-only native plugin import settings.
+- Sample-local Quickstart ONNX inference using the submitted semantic camera,
+  exact current observation/action contract, shared replay robot, deterministic
+  Run/Stop reset, and visible contract violations.
+- Real-policy Unity Editor inference and Windows x64 Standalone build/run smoke
+  validation without adding a public SDK inference API or Sentis dependency.
 
 ### Security
 

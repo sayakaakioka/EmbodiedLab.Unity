@@ -120,6 +120,27 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests
             Assert.That(light.intensity, Is.EqualTo(1.15f).Within(Tolerance));
             AssertRotation(Quaternion.Euler(50f, -30f, 0f), lightTransform.rotation);
 
+            Transform forwardCameraTransform = FindRequired(
+                root,
+                "Robot/Forward Semantic Camera");
+            Camera forwardCamera = forwardCameraTransform.GetComponent<Camera>();
+            Assert.That(forwardCamera, Is.Not.Null);
+            Assert.That(forwardCamera.enabled, Is.False);
+            Assert.That(forwardCamera.fieldOfView, Is.EqualTo(70f).Within(Tolerance));
+            Assert.That(forwardCamera.nearClipPlane, Is.EqualTo(0.05f).Within(Tolerance));
+            Assert.That(forwardCamera.farClipPlane, Is.EqualTo(100f).Within(Tolerance));
+            Assert.That(
+                forwardCameraTransform.position.y,
+                Is.EqualTo(0.6f).Within(Tolerance));
+            Assert.That(FindRequired(root, "Robot").gameObject.layer, Is.EqualTo(2));
+            Assert.That(FindRequired(root, "Goal").gameObject.layer, Is.EqualTo(2));
+            Assert.That(
+                FindRequired(root, "Floor").gameObject.layer,
+                Is.EqualTo(QuickstartWorldBuilder.TraversableLayer));
+            Assert.That(
+                FindRequired(root, "Wall wall_north").gameObject.layer,
+                Is.EqualTo(QuickstartWorldBuilder.BlockedLayer));
+
             builder.Dispose();
             Assert.That(GameObject.Find("Canonical Navigation World"), Is.Null);
         }
@@ -134,6 +155,135 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests
             builder.Dispose();
 
             Assert.That(GameObject.Find("Canonical Navigation World"), Is.Null);
+        }
+
+        [Test]
+        public void InferenceStopAndDisposeResetSharedRobot()
+        {
+            using var builder = new QuickstartWorldBuilder();
+            builder.Build(LoadScenario());
+            Transform robot = builder.RobotTransform ??
+                throw new AssertionException("Quickstart robot was not created.");
+            using var runner = new QuickstartInferenceRunner(builder);
+
+            robot.position = new Vector3(2f, 0.5f, 3f);
+            robot.rotation = Quaternion.Euler(0f, 120f, 0f);
+            runner.Stop();
+            AssertVector(builder.RobotStartPosition, robot.position, "stop reset position");
+            AssertRotation(builder.RobotStartRotation, robot.rotation);
+
+            robot.position = new Vector3(-1f, 0.5f, 1f);
+            runner.Dispose();
+            AssertVector(builder.RobotStartPosition, robot.position, "dispose reset position");
+            AssertRotation(builder.RobotStartRotation, robot.rotation);
+            Assert.That(runner.IsRunning, Is.False);
+        }
+
+        [Test]
+        public void StagedRealPolicyLoadsRunsAndDisposesWhenProvided()
+        {
+            string path = Path.Combine(
+                Application.dataPath,
+                "EmbodiedLabQuickstartValidation",
+                "Fixtures",
+                "policy.onnx");
+            if (!File.Exists(path))
+            {
+                Assert.Pass("No external real-policy fixture was staged for this run.");
+                return;
+            }
+
+            var policy = new QuickstartOnnxPolicy(path);
+            QuickstartRawAction action = policy.Run(
+                new float[QuickstartOnnxContract.ImageValueCount],
+                new float[QuickstartOnnxContract.NumericValueCount]);
+            Assert.That(float.IsNaN(action.Forward), Is.False);
+            Assert.That(float.IsInfinity(action.Forward), Is.False);
+            Assert.That(float.IsNaN(action.Turn), Is.False);
+            Assert.That(float.IsInfinity(action.Turn), Is.False);
+
+            policy.Dispose();
+            Assert.Throws<ObjectDisposedException>(
+                () => policy.Run(
+                    new float[QuickstartOnnxContract.ImageValueCount],
+                    new float[QuickstartOnnxContract.NumericValueCount]));
+        }
+
+        [Test]
+        public void StagedRealPolicyRunsSemanticInferenceWhenProvided()
+        {
+            string path = Path.Combine(
+                Application.dataPath,
+                "EmbodiedLabQuickstartValidation",
+                "Fixtures",
+                "policy.onnx");
+            if (!File.Exists(path))
+            {
+                Assert.Pass("No external real-policy fixture was staged for this run.");
+                return;
+            }
+
+            using var builder = new QuickstartWorldBuilder();
+            builder.Build(LoadScenario());
+            using var runner = new QuickstartInferenceRunner(builder);
+            var replay = new QuickstartReplayPlayer();
+            replay.Load(
+                builder.RobotTransform ??
+                    throw new AssertionException("Quickstart robot was not created."),
+                new[]
+                {
+                    CreateReplayStep(0, 0d, -6d, -4d, 45d),
+                    CreateReplayStep(1, 0.1d, -5d, -3d, 60d),
+                },
+                "eval/real-policy-transition.jsonl.gz");
+            var modes = new QuickstartModeCoordinator(replay.Stop, runner.Stop);
+            modes.EnterReplay();
+            replay.Play();
+            replay.Tick(0.05d);
+            Assert.That(replay.IsPlaying, Is.True);
+            modes.EnterInference();
+            Assert.That(replay.IsPlaying, Is.False);
+
+            runner.Start(path);
+            Assert.That(runner.IsRunning, Is.True, runner.Status);
+
+            runner.Tick(QuickstartInferenceRunner.DecisionSeconds);
+            Assert.That(
+                runner.ObservationStatus,
+                Does.StartWith("angle="),
+                runner.Status);
+            Assert.That(runner.ActionStatus, Does.StartWith("raw f="), runner.Status);
+
+            runner.Stop();
+            Assert.That(runner.IsRunning, Is.False);
+            AssertVector(
+                builder.RobotStartPosition,
+                builder.RobotTransform!.position,
+                "real inference stop reset");
+        }
+
+        private static ReplayLogStep CreateReplayStep(
+            int step,
+            double time,
+            double x,
+            double z,
+            double yaw)
+        {
+            return new ReplayLogStep
+            {
+                JobId = "real-policy-smoke",
+                ScenarioId = "navigation_default",
+                EpisodeId = "episode-1",
+                StepIndex = step,
+                TimeSeconds = time,
+                Phase = "eval",
+                PolicyMode = "deterministic",
+                Robot = new ReplayRobotState
+                {
+                    Position = new ReplayPosition { X = x, Z = z },
+                    RotationYDegrees = yaw,
+                },
+            };
         }
 
         private static ScenarioBundle LoadScenario()

@@ -17,5 +17,6 @@
     <Compile Include="../UnityEngineShim/Awaitable.cs" Link="UnityEngine/Awaitable.cs" />
     <Compile Include="../UnityEngineShim/QuickstartRuntime.cs" Link="UnityEngine/QuickstartRuntime.cs" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.4" />
   </ItemGroup>
 </Project>

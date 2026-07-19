@@ -7,7 +7,8 @@
 の SDK 移行、固定環境の Quickstart sample、canonical world 表示、sample-local
 job history、成果物 download と replay reader の resource budget 固定、Replay
 playback、import 済み sample の Unity compile と canonical world test、remote endpoint
-の HTTPS／WSS invariant まで完了した。次は、Quickstart に ONNX inference を追加する。
+の HTTPS／WSS invariant、Quickstart の Windows x64 ONNX inference まで完了した。
+次は、固定 mode と4分割壁パーツ生成 mode の選択を扱う。
 
 ## 合意済みの設計
 
@@ -53,6 +54,11 @@ playback、import 済み sample の Unity compile と canonical world test、rem
 - Unity 6000.3 の import と Test Runner はローカルの最小検証プロジェクトで
   実行する。CI では Unity Editor を起動せず、schema、生成、.NET fixture、lint、
   JSON、再生成差分を検証する。
+- CPU 版 ONNX Runtime は package-owned dependency とし、`1.24.4` の同じ managed／
+  Windows x64 native binary を Quickstart と EnvForge で共有する。native importer は
+  Windows x64 Editor／Standalone だけを有効にする。
+- ONNX inference は Quickstart 内部の composition に限定し、public SDK API、Sentis、
+  model converter、runtime abstraction、model-format fallback は追加しない。
 
 ## 完了済み
 
@@ -268,6 +274,32 @@ playback、import 済み sample の Unity compile と canonical world test、rem
 - query／fragment 拒否、末尾 slash normalization、parameter name を含む例外を維持
 - endpoint の自動書換えや新しい認証 API は追加しない
 
+### Quickstart の package-owned ONNX inference
+
+[EmbodiedLab.Unity #22](https://github.com/sayakaakioka/EmbodiedLab.Unity/issues/22)
+で以下を固定した。
+
+- EnvForge で検証済みの CPU ONNX Runtime `1.24.4` managed assembly と Windows x64
+  native library を `Runtime/Plugins/ONNXRuntime` へ移し、SHA-256、upstream MIT
+  license、third-party notices、Windows x64 限定 importer を記録
+- download 済み `policy.onnx` を一つの cached `InferenceSession` で読み、`obs_0` の
+  `3x84x112` RGB と `obs_1` の signed goal angle／distance、および2つ以上の float
+  action を fail-closed で検証
+- submitted `ForwardCameraSensor` の mount、pitch、FOV、clip、size を使い、traversable
+  を緑、blocked／background を青、robot／goal を非表示にした semantic image を
+  vertical flip、CHW、normalized RGB へ変換
+- forward を `[0,1]`、turn を `[-1,1]` へ clamp し、contract violation を status に
+  明示。0.1秒ごとに最大0.2m／15度を同じ canonical robot へ適用
+- Replay と inference の相互排他、submitted start pose への deterministic reset、
+  history 選択／world rebuild／Stop／destroy 時の native resource release
+- malformed model／tensor、graphics 不足、native failure、wall collision、goal reach の
+  明示停止
+- Unity 6000.3.11f1 Windows x64 で package import、実 `policy.onnx` の Editor semantic
+  inference、Replay→Inference、Standalone build／実行 smoke を検証
+- public SDK inference API、Sentis、compatibility wrapper、別 sample／world は追加しない
+- dependent migration は [EnvForge #18](https://github.com/sayakaakioka/EnvForge/issues/18)
+  で追跡し、SDK revision 更新直後に EnvForge 内の duplicate ONNX Runtime binary を削除する
+
 ## 完了した SDK スコープ
 
 - API と WebSocket の base URL だけを持つ `EmbodiedLabEndpoints`
@@ -282,6 +314,7 @@ playback、import 済み sample の Unity compile と canonical world test、rem
 - 固定環境の job lifecycle を一画面で確認できる importable Quickstart sample
 - exact scenario を可視化し、再起動後に job を復元できる sample-local history
 - 最新 deterministic evaluation chunk を同じ robot で再生する sample-local replay
+- download 済み ONNX model を同じ world／robot で実行する Windows x64 sample-local inference
 - facade の Unity Editor test と .NET compatibility / behavior test
 
 再利用可能なローカル履歴と Editor UI は EnvForge に残す。Unity Editor は CI や
@@ -289,8 +322,7 @@ EmbodiedLab の実行基盤へ追加しない。
 
 ## 次の段階
 
-1. Quickstart に ONNX inference を追加する。
-2. 固定モードと 4 分割壁パーツ生成モードの選択を追加する。
+1. 固定モードと 4 分割壁パーツ生成モードの選択を追加する。
 
 各段階を一つの Issue と小さな PR に分け、テストと lint が通った状態で次へ進む。
 
@@ -305,8 +337,10 @@ EmbodiedLab の実行基盤へ追加しない。
 
 ```bash
 python3 -m unittest discover -s Tools~/tests -p 'test_*.py'
-ruff check Tools~/contract_schemas.py Tools~/run_unity_tests.py Tools~/tests
-ruff format --check Tools~/contract_schemas.py Tools~/run_unity_tests.py Tools~/tests
+ruff check Tools~/contract_schemas.py Tools~/run_unity_tests.py \
+  Tools~/run_unity_standalone_smoke.py Tools~/tests
+ruff format --check Tools~/contract_schemas.py Tools~/run_unity_tests.py \
+  Tools~/run_unity_standalone_smoke.py Tools~/tests
 dotnet format Tools~/ContractCodeGen/ContractCodeGen.csproj --verify-no-changes
 dotnet format Tools~/ContractTests/ContractTests.csproj --verify-no-changes
 dotnet build Tools~/TransportCompatibility/TransportCompatibility.csproj \
@@ -319,5 +353,10 @@ dotnet run --project Tools~/TransportTests/TransportTests.csproj \
   --configuration Release
 dotnet format Tools~/TransportTests/TransportTests.csproj --verify-no-changes
 python3 Tools~/run_unity_tests.py --unity-editor <path-to-unity-6000.3.11f1>
+python3 Tools~/run_unity_tests.py --unity-editor <path-to-unity-6000.3.11f1> \
+  --policy <path-to-policy.onnx> --with-graphics
+python3 Tools~/run_unity_standalone_smoke.py \
+  --unity-editor <path-to-unity-6000.3.11f1> \
+  --policy <path-to-policy.onnx> --output-directory <temporary-output>
 git diff --check
 ```

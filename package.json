@@ -2,14 +2,16 @@
   "name": "com.embodiedlab.unity",
   "version": "0.1.0",
   "displayName": "EmbodiedLab Unity SDK",
-  "description": "Unity SDK for submitting and monitoring EmbodiedLab cloud training jobs and downloading results, replays, and trained models.",
+  "description": "Unity SDK for EmbodiedLab cloud jobs, result and replay downloads, and a Windows x64 ONNX inference Quickstart.",
   "unity": "6000.3",
   "documentationUrl": "https://github.com/sayakaakioka/EmbodiedLab.Unity#readme",
   "changelogUrl": "https://github.com/sayakaakioka/EmbodiedLab.Unity/blob/main/CHANGELOG.md",
   "keywords": [
     "embodied-ai",
     "reinforcement-learning",
-    "cloud-training"
+    "cloud-training",
+    "onnx",
+    "inference"
   ],
   "author": {
     "name": "sayakaakioka",
@@ -17,12 +19,13 @@
   },
   "dependencies": {
     "com.unity.nuget.newtonsoft-json": "3.2.2",
-    "com.unity.modules.imgui": "1.0.0"
+    "com.unity.modules.imgui": "1.0.0",
+    "com.unity.modules.physics": "1.0.0"
   },
   "samples": [
     {
       "displayName": "Quickstart",
-      "description": "Submit, monitor, cancel, download, and replay a fixed-environment EmbodiedLab training job.",
+      "description": "Submit, monitor, cancel, download, replay, and run ONNX inference for a fixed-environment EmbodiedLab job.",
       "path": "Samples~/Quickstart"
     }
   ]
