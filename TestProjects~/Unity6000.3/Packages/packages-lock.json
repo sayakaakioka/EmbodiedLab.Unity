@@ -6,7 +6,8 @@
       "source": "local",
       "dependencies": {
         "com.unity.nuget.newtonsoft-json": "3.2.2",
-        "com.unity.modules.imgui": "1.0.0"
+        "com.unity.modules.imgui": "1.0.0",
+        "com.unity.modules.physics": "1.0.0"
       }
     },
     "com.unity.ext.nunit": {
@@ -39,6 +40,12 @@
       "dependencies": {}
     },
     "com.unity.modules.jsonserialize": {
+      "version": "1.0.0",
+      "depth": 1,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.physics": {
       "version": "1.0.0",
       "depth": 1,
       "source": "builtin",

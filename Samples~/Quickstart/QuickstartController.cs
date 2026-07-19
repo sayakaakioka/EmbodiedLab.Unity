@@ -28,6 +28,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private QuickstartHistoryStore? historyStore;
         private QuickstartWorldBuilder? worldBuilder;
         private QuickstartReplayPlayer? replayPlayer;
+        private QuickstartInferenceRunner? inferenceRunner;
+        private QuickstartModeCoordinator? modeCoordinator;
         private QuickstartHistoryRecord? selectedHistoryRecord;
         private EmbodiedLabJob? job;
         private Vector2 historyScrollPosition;
@@ -61,6 +63,9 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                     "job-history.json"));
             worldBuilder = new QuickstartWorldBuilder();
             replayPlayer = new QuickstartReplayPlayer();
+            modeCoordinator = new QuickstartModeCoordinator(
+                () => replayPlayer?.Stop(),
+                () => inferenceRunner?.Stop());
 
             TryLoadHistory();
             TryBuildBundledScenario();
@@ -95,6 +100,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             DrawButton("Download Replay", CanDownloadReplay(), StartReplayDownload);
             DrawButton("Play Replay", CanPlayReplay(), StartReplayPlayback);
             DrawButton("Stop Replay", CanStopReplay(), StopReplayPlayback);
+            DrawButton("Run Inference", CanRunInference(), StartInference);
+            DrawButton("Stop Inference", CanStopInference(), StopInference);
 
             GUILayout.Space(12);
             DrawValue("Submission ID", submissionIdText);
@@ -107,6 +114,11 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             DrawValue("Replay episode", replayPlayer?.CurrentEpisode ?? "-");
             DrawValue("Replay step", replayPlayer?.CurrentStep ?? "-");
             DrawValue("Replay status", replayPlayer?.Status ?? "Unavailable");
+            DrawValue("Inference status", inferenceRunner?.Status ?? "Unavailable");
+            DrawValue(
+                "Observation",
+                inferenceRunner?.ObservationStatus ?? "-");
+            DrawValue("Action", inferenceRunner?.ActionStatus ?? "-");
             DrawValue("History storage", historyStorageText);
 
             GUILayout.Space(12);
@@ -122,6 +134,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private void Update()
         {
             replayPlayer?.Tick(Time.deltaTime);
+            inferenceRunner?.Tick(Time.deltaTime);
         }
 
         private void OnDestroy()
@@ -134,6 +147,9 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
             lifetimeCancellation?.Cancel();
             StopCurrentJob();
+            inferenceRunner?.Dispose();
+            inferenceRunner = null;
+            modeCoordinator = null;
             replayPlayer?.Clear();
             replayPlayer = null;
             worldBuilder?.Dispose();
@@ -279,6 +295,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             return !destroyed &&
                 replayPlayer?.IsLoaded == true &&
                 !replayPlayer.IsPlaying &&
+                inferenceRunner?.IsRunning != true &&
                 !submissionRequestRunning &&
                 !restoreRunning &&
                 !cancelRequestRunning &&
@@ -289,6 +306,25 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private bool CanStopReplay()
         {
             return !destroyed && replayPlayer?.IsLoaded == true;
+        }
+
+        private bool CanRunInference()
+        {
+            return !destroyed &&
+                selectedHistoryRecord?.Status == ResultStatus.Completed &&
+                HasRunnableSelectedModel() &&
+                inferenceRunner != null &&
+                !inferenceRunner.IsRunning &&
+                !submissionRequestRunning &&
+                !restoreRunning &&
+                !cancelRequestRunning &&
+                !modelDownloadRunning &&
+                !replayDownloadRunning;
+        }
+
+        private bool CanStopInference()
+        {
+            return !destroyed && inferenceRunner?.IsRunning == true;
         }
 
         private static bool UsesExampleEndpoint(string value)
@@ -350,6 +386,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
             cancellationConfirmationArmed = false;
             removalConfirmationArmed = false;
+            modeCoordinator?.Clear();
             replayPlayer?.Stop();
             _ = DownloadModelAsync();
         }
@@ -363,6 +400,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
             cancellationConfirmationArmed = false;
             removalConfirmationArmed = false;
+            modeCoordinator?.Clear();
             replayPlayer?.Stop();
             _ = DownloadReplayAsync();
         }
@@ -374,8 +412,32 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 return;
             }
 
+            modeCoordinator?.EnterReplay();
             replayPlayer!.Play();
             activityText = "Replay playback started.";
+        }
+
+        private void StartInference()
+        {
+            if (!CanRunInference())
+            {
+                return;
+            }
+
+            modeCoordinator?.EnterInference();
+            inferenceRunner!.Start(selectedHistoryRecord!.LocalOnnxPath!);
+            activityText = inferenceRunner.Status;
+        }
+
+        private void StopInference()
+        {
+            if (!CanStopInference())
+            {
+                return;
+            }
+
+            inferenceRunner!.Stop();
+            activityText = inferenceRunner.Status;
         }
 
         private void StopReplayPlayback()
@@ -620,11 +682,13 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             modelDownloadRunning = true;
             try
             {
-                string outputDirectory = QuickstartLocalPaths.GetSubmissionDirectory(
+                string destinationPath = QuickstartLocalPaths.GetModelPath(
                     Application.persistentDataPath,
                     activeJob.SubmissionId);
-                Directory.CreateDirectory(outputDirectory);
-                string destinationPath = Path.Combine(outputDirectory, "policy.onnx");
+                Directory.CreateDirectory(
+                    Path.GetDirectoryName(destinationPath) ??
+                    throw new InvalidOperationException(
+                        "Model output directory is unavailable."));
 
                 activityText = "Downloading trained model...";
                 await activeJob.DownloadModelAsync(
@@ -864,6 +928,27 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 StringComparison.OrdinalIgnoreCase);
         }
 
+        private bool HasRunnableSelectedModel()
+        {
+            QuickstartHistoryRecord? record = selectedHistoryRecord;
+            if (record == null || string.IsNullOrWhiteSpace(record.LocalOnnxPath))
+            {
+                return false;
+            }
+
+            try
+            {
+                string expected = QuickstartLocalPaths.GetModelPath(
+                    Application.persistentDataPath,
+                    record.SubmissionId);
+                return PathsEqual(expected, record.LocalOnnxPath) && File.Exists(expected);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         private void HandleResultUpdated(ResultDocument result)
         {
             ApplyResult(result);
@@ -949,6 +1034,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 ClearReplayForModeChange();
                 ScenarioBundle scenario = ScenarioBundleJson.Deserialize(scenarioJson.text);
                 worldBuilder.Build(scenario);
+                CreateInferenceRunner();
             }
             catch (Exception exception)
             {
@@ -963,6 +1049,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             {
                 ClearReplayForModeChange();
                 worldBuilder?.Build(scenario);
+                CreateInferenceRunner();
             }
             catch (Exception exception)
             {
@@ -1086,7 +1173,18 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         private void ClearReplayForModeChange()
         {
+            modeCoordinator?.Clear();
+            inferenceRunner?.Dispose();
+            inferenceRunner = null;
             replayPlayer?.Clear();
+        }
+
+        private void CreateInferenceRunner()
+        {
+            QuickstartWorldBuilder activeWorld = worldBuilder ??
+                throw new InvalidOperationException("Quickstart world is unavailable.");
+            inferenceRunner?.Dispose();
+            inferenceRunner = new QuickstartInferenceRunner(activeWorld);
         }
 
         private void DrawCloudCancellation()

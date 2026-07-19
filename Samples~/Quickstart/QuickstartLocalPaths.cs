@@ -59,6 +59,15 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 "manifest.json");
         }
 
+        internal static string GetModelPath(
+            string persistentDataPath,
+            string submissionId)
+        {
+            return Path.Combine(
+                GetSubmissionDirectory(persistentDataPath, submissionId),
+                "policy.onnx");
+        }
+
         internal static string GetReplayChunkPath(
             string persistentDataPath,
             string submissionId,

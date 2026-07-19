@@ -36,6 +36,18 @@ REQUIRED_TEST_NAMES = frozenset(
             "EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests."
             "QuickstartWorldBuilderTests.DisposeRemovesGeneratedWorld"
         ),
+        (
+            "EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests."
+            "QuickstartWorldBuilderTests.InferenceStopAndDisposeResetSharedRobot"
+        ),
+        (
+            "EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests."
+            "QuickstartWorldBuilderTests.StagedRealPolicyLoadsRunsAndDisposesWhenProvided"
+        ),
+        (
+            "EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests."
+            "QuickstartWorldBuilderTests.StagedRealPolicyRunsSemanticInferenceWhenProvided"
+        ),
     }
 )
 
@@ -54,6 +66,16 @@ def parse_args() -> argparse.Namespace:
         "--output-directory",
         type=Path,
         help="Directory for the NUnit XML and Unity editor log.",
+    )
+    parser.add_argument(
+        "--policy",
+        type=Path,
+        help="Optional real EmbodiedLab policy.onnx staged for the ONNX smoke test.",
+    )
+    parser.add_argument(
+        "--with-graphics",
+        action="store_true",
+        help="Keep the Unity graphics device enabled for semantic-camera smoke tests.",
     )
     return parser.parse_args()
 
@@ -128,7 +150,11 @@ def cleanup_staged_sample(project_path: Path) -> None:
     remove_path(staging_root.with_name(f"{staging_root.name}.meta"))
 
 
-def stage_quickstart_sample(repository_root: Path, project_path: Path) -> Path:
+def stage_quickstart_sample(
+    repository_root: Path,
+    project_path: Path,
+    policy_path: Path | None = None,
+) -> Path:
     sample_source = repository_root / SAMPLE_SOURCE_RELATIVE_PATH
     imported_tests_source = repository_root / IMPORTED_TESTS_SOURCE_RELATIVE_PATH
     if not sample_source.is_dir():
@@ -145,6 +171,16 @@ def stage_quickstart_sample(repository_root: Path, project_path: Path) -> Path:
     staged_sample.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(sample_source, staged_sample)
     shutil.copytree(imported_tests_source, staged_tests)
+    if policy_path is not None:
+        resolved_policy = policy_path.expanduser().resolve()
+        if not resolved_policy.is_file():
+            raise FileNotFoundError(f"ONNX policy not found: {resolved_policy}")
+
+        staged_policy = (
+            project_path / STAGING_ROOT_RELATIVE_PATH / "Fixtures" / "policy.onnx"
+        )
+        staged_policy.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(resolved_policy, staged_policy)
     return staged_sample
 
 
@@ -173,6 +209,7 @@ def build_unity_command(
     project_path: Path,
     results_path: Path,
     log_path: Path,
+    with_graphics: bool = False,
 ) -> list[str]:
     windows_editor = (
         mounted_windows_path(unity_editor)
@@ -192,10 +229,9 @@ def build_unity_command(
 
         return converted
 
-    return [
+    command = [
         str(unity_editor),
         "-batchmode",
-        "-nographics",
         "-forgetProjectPath",
         "-runTests",
         "-testPlatform",
@@ -209,6 +245,9 @@ def build_unity_command(
         "-logFile",
         editor_argument(log_path),
     ]
+    if not with_graphics:
+        command.insert(2, "-nographics")
+    return command
 
 
 def main() -> int:
@@ -240,6 +279,7 @@ def main() -> int:
         project_path,
         results_path,
         log_path,
+        args.with_graphics,
     )
     try:
         results_path.unlink(missing_ok=True)
@@ -251,7 +291,7 @@ def main() -> int:
         return 1
 
     try:
-        stage_quickstart_sample(REPOSITORY_ROOT, project_path)
+        stage_quickstart_sample(REPOSITORY_ROOT, project_path, args.policy)
         completed = subprocess.run(command, check=False)
     except OSError as error:
         print(

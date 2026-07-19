@@ -33,14 +33,15 @@ class QuickstartSampleTests(unittest.TestCase):
                 {
                     "displayName": "Quickstart",
                     "description": (
-                        "Submit, monitor, cancel, download, and replay a "
-                        "fixed-environment EmbodiedLab training job."
+                        "Submit, monitor, cancel, download, replay, and run ONNX "
+                        "inference for a fixed-environment EmbodiedLab job."
                     ),
                     "path": "Samples~/Quickstart",
                 }
             ],
         )
         self.assertEqual(package["dependencies"]["com.unity.modules.imgui"], "1.0.0")
+        self.assertEqual(package["dependencies"]["com.unity.modules.physics"], "1.0.0")
 
     def test_sample_assembly_references_runtime_only(self) -> None:
         assembly = json.loads(
@@ -104,6 +105,12 @@ class QuickstartSampleTests(unittest.TestCase):
             "QuickstartWorldBuilder.cs",
             "QuickstartReplayPlayer.cs",
             "QuickstartReplayTimeline.cs",
+            "QuickstartInferenceMath.cs",
+            "QuickstartInferenceRunner.cs",
+            "QuickstartModeCoordinator.cs",
+            "QuickstartOnnxContract.cs",
+            "QuickstartOnnxPolicy.cs",
+            "QuickstartSemanticCamera.cs",
         )
 
         for filename in expected_files:
@@ -187,6 +194,31 @@ class QuickstartSampleTests(unittest.TestCase):
         self.assertIn("activeRobot.rotation", player)
         self.assertIn("EpisodePauseSeconds", timeline)
         self.assertIn("TimeSeconds", timeline)
+
+    def test_inference_uses_shared_world_and_exact_contract(self) -> None:
+        controller = (SAMPLE_DIRECTORY / "QuickstartController.cs").read_text(
+            encoding="utf-8"
+        )
+        contract = (SAMPLE_DIRECTORY / "QuickstartOnnxContract.cs").read_text(
+            encoding="utf-8"
+        )
+        runner = (SAMPLE_DIRECTORY / "QuickstartInferenceRunner.cs").read_text(
+            encoding="utf-8"
+        )
+
+        for control in ("Run Inference", "Stop Inference"):
+            self.assertIn(f'"{control}"', controller)
+        self.assertIn("new QuickstartInferenceRunner(activeWorld)", controller)
+        self.assertIn("modeCoordinator?.EnterInference()", controller)
+        self.assertIn('ImageInputName = "obs_0"', contract)
+        self.assertIn('NumericInputName = "obs_1"', contract)
+        self.assertIn("ImageHeight = 84", contract)
+        self.assertIn("ImageWidth = 112", contract)
+        self.assertIn("ForwardMetersPerDecision = 0.2f", runner)
+        self.assertIn("TurnDegreesPerDecision = 15f", runner)
+        self.assertNotIn(
+            "Sentis", "\n".join(path.name for path in SAMPLE_DIRECTORY.iterdir())
+        )
 
     def test_local_failures_do_not_discard_submitted_job(self) -> None:
         controller = (SAMPLE_DIRECTORY / "QuickstartController.cs").read_text(

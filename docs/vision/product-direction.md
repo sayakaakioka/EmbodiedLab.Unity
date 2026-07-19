@@ -17,7 +17,13 @@ EmbodiedLab のクラウド学習機能を EnvForge から切り離し、Unity
 - `EnvForge` は再利用可能な Editor UI、ローカルのジョブ履歴、シーン作成フローを
   所有し、クラウド操作にはこの SDK を利用する。SDK の Quickstart sample には、
   restore、監視再開、Replay artifact の再利用を説明するための最小限の
-  sample-local 履歴だけを置く。
+  sample-local 履歴と、download 済み model の利用を説明する sample-local 推論だけを置く。
+
+CPU 版 ONNX Runtime 1.24.4 の managed assembly と Windows x64 native library は
+`EmbodiedLab.Unity` package が一つだけ所有する。Quickstart と EnvForge が同じ binary
+dependency を使い、各 frontend に duplicate を残さない。推論 controller は Quickstart
+固有の内部実装とし、現段階では public SDK inference API や汎用 model abstraction を
+追加しない。
 
 責務をまたぐ同じ実装や互換ラッパーは残さない。
 
@@ -28,6 +34,8 @@ EmbodiedLab のクラウド学習機能を EnvForge から切り離し、Unity
 1. Unity からジョブを投入する。
 2. ジョブの状態と進捗を監視する。
 3. Result Document、Replay Bundle、学習済みモデルを取得する。
+4. Windows x64 の Quickstart で同じ canonical world／robot を使い、Replay と排他的に
+   `policy.onnx` をローカル推論する。
 
 公開 API は、状態を保持する小さな `EmbodiedLabJob` facade と Unity 6 の
 `Awaitable` を中心にする。データ契約は EmbodiedLab が出力する JSON Schema
@@ -58,3 +66,7 @@ EmbodiedLab のクラウド学習機能を EnvForge から切り離し、Unity
 
 最初の開発と検証は EnvForge と同じ Unity 6000.3 系で行う。未検証の古い
 Unity バージョンへの互換層は設けない。
+
+ONNX inference の最初の検証対象は Unity 6000.3.11f1 の Windows x64 Editor と
+Standalone に限定する。他 OS／CPU 用 native library、Sentis、model conversion、
+model format fallback は、具体的な要件と検証環境が合意されるまで追加しない。

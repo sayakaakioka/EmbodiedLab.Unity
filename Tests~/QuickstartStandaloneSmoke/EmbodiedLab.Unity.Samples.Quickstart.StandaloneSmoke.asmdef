@@ -1,0 +1,20 @@
+{
+  "name": "EmbodiedLab.Unity.Samples.Quickstart.StandaloneSmoke",
+  "rootNamespace": "EmbodiedLab.Unity.Samples.Quickstart.StandaloneSmoke",
+  "references": [
+    "EmbodiedLab.Unity",
+    "EmbodiedLab.Unity.Samples.Quickstart"
+  ],
+  "includePlatforms": [
+    "Editor",
+    "WindowsStandalone64"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
