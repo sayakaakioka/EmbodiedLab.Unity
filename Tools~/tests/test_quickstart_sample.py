@@ -125,7 +125,7 @@ class QuickstartSampleTests(unittest.TestCase):
         self.assertIn('"job-history.json"', controller)
         self.assertIn("Application.persistentDataPath", controller)
         self.assertIn("Local history (newest first)", controller)
-        self.assertIn("QuickstartLocalPaths.GetSubmissionDirectory", controller)
+        self.assertIn("QuickstartLocalPaths.GetModelPath", controller)
 
     def test_controller_guards_cloud_job_operations(self) -> None:
         controller = (SAMPLE_DIRECTORY / "QuickstartController.cs").read_text(
