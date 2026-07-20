@@ -120,10 +120,17 @@ silent stream. `ResultUpdated` is dispatched through the synchronization
 context captured when the job handle is created, which is normally Unity's main
 thread context.
 
+If submission creation succeeds but the separate training-start request cannot
+be confirmed, `SubmitAsync` throws `EmbodiedLabTrainingStartException`. Its
+`Job` property retains the submission ID and cancellation capability so the
+caller can persist, monitor, or cancel the submission. The caller owns and must
+dispose that recoverable job handle.
+
 The replay-bundle artifact currently points to its manifest, so
-`DownloadReplayBundleAsync` saves that manifest. `DownloadModelAsync` selects
-`onnx_model` first, then the Unity Sentis model, then the generic model artifact.
-Result artifacts exist only at `job.Result?.ResultBundle?.Artifacts`; the SDK does
+`DownloadReplayBundleAsync` saves that manifest. `DownloadModelAsync` requires
+an `onnx_model` artifact that declares the ONNX format; it does not fall back to
+Sentis or generic model artifacts. Result artifacts exist only at
+`job.LatestResult?.ResultBundle?.Artifacts`; the SDK does
 not expose the removed top-level result artifact field.
 
 Read a saved scenario with the generated concrete sensor and reward types intact:

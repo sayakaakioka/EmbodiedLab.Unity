@@ -19,6 +19,11 @@ training flow without depending on EnvForge.
    then use **Play Replay** and **Stop Replay**. Select **Run Inference** to run
    the downloaded model and **Stop Inference** to release it and reset the robot.
 
+The latest seven Quickstart activity messages appear from the Game view's
+upper-left corner as a transparent overlay. Informational messages are light,
+warnings are yellow, and errors are red; a small text shadow preserves
+readability without adding an opaque background panel.
+
 The model is saved to:
 
     <Application.persistentDataPath>/EmbodiedLabQuickstart/<submission-id>/policy.onnx

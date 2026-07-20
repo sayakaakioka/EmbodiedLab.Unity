@@ -30,6 +30,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private QuickstartReplayPlayer? replayPlayer;
         private QuickstartInferenceRunner? inferenceRunner;
         private QuickstartModeCoordinator? modeCoordinator;
+        private QuickstartLogOverlay? logOverlay;
         private QuickstartHistoryRecord? selectedHistoryRecord;
         private EmbodiedLabJob? job;
         private Vector2 historyScrollPosition;
@@ -56,6 +57,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private void Awake()
         {
             lifetimeCancellation = new CancellationTokenSource();
+            logOverlay = new QuickstartLogOverlay();
+            logOverlay.Add(activityText);
             historyStore = new QuickstartHistoryStore(
                 Path.Combine(
                     Application.persistentDataPath,
@@ -74,7 +77,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private void OnGUI()
         {
             RetryDirtyHistory();
-            GUILayout.BeginArea(new Rect(20, 20, 760, 900), GUI.skin.box);
+            logOverlay?.Add(activityText);
+            GUILayout.BeginArea(new Rect(20, 170, 760, 750), GUI.skin.box);
             GUILayout.Label("EmbodiedLab Quickstart");
             GUILayout.Space(8);
 
@@ -129,6 +133,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 "Local cancellation stops this sample only. Use Cancel Cloud Job " +
                 "to stop the remote training job.");
             GUILayout.EndArea();
+            logOverlay?.Draw(12f, 12f, 760f);
         }
 
         private void Update()
@@ -150,6 +155,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             inferenceRunner?.Dispose();
             inferenceRunner = null;
             modeCoordinator = null;
+            logOverlay = null;
             replayPlayer?.Clear();
             replayPlayer = null;
             worldBuilder?.Dispose();
@@ -248,6 +254,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 !replayDownloadRunning &&
                 !selectedHistoryRecordDirty &&
                 !cancellationConfirmationArmed &&
+                historyStore?.IsWritable == true &&
                 scenarioJson != null &&
                 !UsesExampleEndpoint(apiBaseUrl) &&
                 !UsesExampleEndpoint(resultWebSocketBaseUrl);
@@ -477,6 +484,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             }
 
             EmbodiedLabJob? submittedJob = null;
+            bool trainingStartConfirmed = true;
             int generation = -1;
             try
             {
@@ -487,10 +495,19 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                     resultWebSocketBaseUrl.Trim());
 
                 activityText = "Submitting scenario and starting training...";
-                submittedJob = await EmbodiedLabJob.SubmitAsync(
-                    endpoints,
-                    scenario,
-                    lifetimeCancellation.Token);
+                try
+                {
+                    submittedJob = await EmbodiedLabJob.SubmitAsync(
+                        endpoints,
+                        scenario,
+                        lifetimeCancellation.Token);
+                }
+                catch (EmbodiedLabTrainingStartException exception)
+                {
+                    submittedJob = exception.Job;
+                    trainingStartConfirmed = false;
+                }
+
                 var record = new QuickstartHistoryRecord
                 {
                     SubmissionId = submittedJob.SubmissionId,
@@ -518,7 +535,15 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 generation = operationGeneration;
                 submissionRequestRunning = false;
 
-                activityText = "Waiting for WebSocket result updates...";
+                activityText = trainingStartConfirmed
+                    ? "Waiting for WebSocket result updates..."
+                    : "Training start was not confirmed. Monitoring remains active; " +
+                        "cloud cancellation is available.";
+                if (!trainingStartConfirmed)
+                {
+                    logOverlay?.Add(activityText, QuickstartLogLevel.Warning);
+                }
+
                 TryBuildWorld(scenario);
                 TryPersistHistoryRecord(record);
 
@@ -1305,6 +1330,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             }
 
             activityText = $"{operation}: {exception.Message}";
+            logOverlay?.Add(activityText, QuickstartLogLevel.Error);
             Debug.LogException(exception, this);
         }
     }

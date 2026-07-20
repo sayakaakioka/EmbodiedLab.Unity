@@ -22,6 +22,7 @@ namespace EmbodiedLab.Unity.Internal
         private const long MaximumJsonArtifactBytes = 1024L * 1024L;
         private const long MaximumReplayArtifactBytes = 64L * 1024L * 1024L;
         private const long MaximumModelArtifactBytes = 1024L * 1024L * 1024L;
+        private const int MaximumResultMessageBytes = 1024 * 1024;
 
         private static readonly JsonSerializerSettings SerializerSettings = new()
         {
@@ -460,48 +461,47 @@ namespace EmbodiedLab.Unity.Internal
         {
             byte[] buffer = new byte[8192];
             using var payload = new MemoryStream();
-            while (true)
-            {
-                WebSocketReceiveResult result = await ReceiveFragmentAsync(
-                        socket,
-                        new ArraySegment<byte>(buffer),
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                if (result.MessageType == WebSocketMessageType.Close)
-                {
-                    throw new ResultStreamDisconnectedException();
-                }
-
-                if (result.MessageType != WebSocketMessageType.Text)
-                {
-                    throw new JsonSerializationException(
-                        "EmbodiedLab result stream returned a non-text message.");
-                }
-
-                payload.Write(buffer, 0, result.Count);
-                if (result.EndOfMessage)
-                {
-                    return Encoding.UTF8.GetString(payload.ToArray());
-                }
-            }
-        }
-
-        private async Task<WebSocketReceiveResult> ReceiveFragmentAsync(
-            IResultWebSocket socket,
-            ArraySegment<byte> buffer,
-            CancellationToken cancellationToken)
-        {
-            using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken);
-            timeout.CancelAfter(monitorTiming.SilenceTimeout);
+            using CancellationTokenSource messageTimeout =
+                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            messageTimeout.CancelAfter(monitorTiming.SilenceTimeout);
             try
             {
-                return await socket.ReceiveAsync(buffer, timeout.Token).ConfigureAwait(false);
+                while (true)
+                {
+                    WebSocketReceiveResult result = await socket.ReceiveAsync(
+                            new ArraySegment<byte>(buffer),
+                            messageTimeout.Token)
+                        .ConfigureAwait(false);
+                    if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        throw new ResultStreamDisconnectedException();
+                    }
+
+                    if (result.MessageType != WebSocketMessageType.Text)
+                    {
+                        throw new JsonSerializationException(
+                            "EmbodiedLab result stream returned a non-text message.");
+                    }
+
+                    if (payload.Length > MaximumResultMessageBytes - result.Count)
+                    {
+                        socket.Abort();
+                        throw new InvalidDataException(
+                            $"EmbodiedLab result message exceeds {MaximumResultMessageBytes} bytes.");
+                    }
+
+                    payload.Write(buffer, 0, result.Count);
+                    if (result.EndOfMessage)
+                    {
+                        return Encoding.UTF8.GetString(payload.ToArray());
+                    }
+                }
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 socket.Abort();
-                throw new ResultStreamTimeoutException("WebSocket result stream became silent.");
+                throw new ResultStreamTimeoutException(
+                    "WebSocket result message timed out.");
             }
         }
 

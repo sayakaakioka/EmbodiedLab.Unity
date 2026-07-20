@@ -10,7 +10,10 @@ var tests = new (string Name, Func<Task> Run)[]
 {
     ("Endpoint encryption", TestEndpointEncryptionAsync),
     ("HTTP contracts", TestHttpContractsAsync),
+    ("Recoverable training start failure", TestRecoverableTrainingStartFailureAsync),
     ("WebSocket primary", TestHealthyWebSocketUsesNoResultGetAsync),
+    ("WebSocket message limit", TestWebSocketMessageLimitAsync),
+    ("WebSocket message deadline", TestWebSocketMessageDeadlineAsync),
     ("Connect failure reconciliation", TestConnectFailureReconcilesAsync),
     ("Disconnect reconciliation", TestDisconnectReconcilesAsync),
     ("Silence reconciliation", TestSilenceReconcilesAsync),
@@ -23,7 +26,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Incorrect artifact content length", TestIncorrectArtifactContentLengthAsync),
     ("Interrupted artifact cleanup", TestInterruptedArtifactDownloadAsync),
     ("Stateful facade", TestStatefulFacadeAsync),
+    ("Stale result rejection", TestStaleResultUpdatesAreRejectedAsync),
+    ("Terminal result enrichment", TestTerminalResultEnrichmentAsync),
     ("Facade model selection", TestFacadeModelSelectionAsync),
+    ("Facade model fallback rejection", TestFacadeRejectsModelFallbackAsync),
     ("Facade replay chunk", TestFacadeReplayChunkAsync),
     ("Single completion monitor", TestConcurrentCompletionMonitorIsRejectedAsync),
 };
@@ -166,6 +172,44 @@ static async Task TestHttpContractsAsync()
     AssertEqual("capability-1", cancelRequest.Authorization?.Parameter, "cancel auth token");
 }
 
+static async Task TestRecoverableTrainingStartFailureAsync()
+{
+    var handler = new RecordingHttpHandler(request => request.Uri.AbsolutePath switch
+    {
+        "/root/submissions" => JsonResponse(
+            """{"cancel_token":"capability-1","status":"accepted","submission_id":"submission-1"}"""),
+        "/root/submissions/submission-1/train" => throw new HttpRequestException(
+            "Training response was lost."),
+        _ => throw new InvalidOperationException($"Unexpected request: {request.Uri}"),
+    });
+    EmbodiedLabJob? unexpectedJob = null;
+    try
+    {
+        unexpectedJob = await EmbodiedLabJob.SubmitAsync(
+            CreateTransport(handler, new QueueWebSocketFactory()),
+            new ScenarioBundle { ScenarioId = "scenario-1" },
+            synchronizationContext: null,
+            CancellationToken.None);
+    }
+    catch (EmbodiedLabTrainingStartException exception)
+    {
+        using EmbodiedLabJob recoverableJob = exception.Job;
+        AssertEqual("submission-1", recoverableJob.SubmissionId, "recoverable submission ID");
+        AssertEqual("capability-1", recoverableJob.CancelToken, "recoverable capability");
+        AssertEqual(
+            typeof(HttpRequestException),
+            exception.InnerException?.GetType(),
+            "training start failure cause");
+        return;
+    }
+    finally
+    {
+        unexpectedJob?.Dispose();
+    }
+
+    throw new InvalidOperationException("Expected a recoverable training start failure.");
+}
+
 static async Task TestHealthyWebSocketUsesNoResultGetAsync()
 {
     var handler = new RecordingHttpHandler(
@@ -192,6 +236,53 @@ static async Task TestHealthyWebSocketUsesNoResultGetAsync()
         "wss://stream.example.test/service/ws/results/submission-1",
         socket.ConnectedUri?.ToString(),
         "result stream URI");
+}
+
+static async Task TestWebSocketMessageLimitAsync()
+{
+    ScriptedFrame[] frames = Enumerable.Range(0, 129)
+        .Select(_ => TextFrame(new string('x', 8192), endOfMessage: false))
+        .ToArray();
+    var socket = new ScriptedWebSocket(frames);
+    using var transport = CreateTransport(
+        new RecordingHttpHandler(
+            request => throw new InvalidOperationException(
+                $"Unexpected HTTP request: {request.Uri}")),
+        new QueueWebSocketFactory(socket));
+
+    await AssertThrowsAsync<InvalidDataException>(
+        () => transport.MonitorResultAsync(
+            "submission-1",
+            _ => { },
+            CancellationToken.None));
+
+    AssertEqual(true, socket.AbortCalled, "oversized stream abort");
+}
+
+static async Task TestWebSocketMessageDeadlineAsync()
+{
+    var socket = new ScriptedWebSocket(
+        TextFrame("{", endOfMessage: false, delay: TimeSpan.FromMilliseconds(40)),
+        TextFrame("}", delay: TimeSpan.FromMilliseconds(40)));
+    var handler = ResultHandler("completed");
+    var timing = new ResultMonitorTiming(
+        TimeSpan.FromSeconds(1),
+        TimeSpan.FromMilliseconds(60),
+        TimeSpan.Zero,
+        TimeSpan.Zero);
+    using var transport = CreateTransport(
+        handler,
+        new QueueWebSocketFactory(socket),
+        timing,
+        (_, _) => Task.CompletedTask);
+
+    await transport.MonitorResultAsync(
+        "submission-1",
+        _ => { },
+        CancellationToken.None);
+
+    AssertEqual(true, socket.AbortCalled, "message deadline stream abort");
+    AssertSingleResultGet(handler);
 }
 
 static async Task TestConnectFailureReconcilesAsync()
@@ -489,9 +580,11 @@ static async Task TestLocalCancellationStopsMonitoringAsync()
 
 static async Task TestStatefulFacadeAsync()
 {
+    int resultReadCount = 0;
     var handler = new RecordingHttpHandler(request => request.Uri.AbsolutePath switch
     {
-        "/root/results/submission-1" => JsonResponse(ResultJson("running")),
+        "/root/results/submission-1" => JsonResponse(
+            ResultJson(resultReadCount++ == 0 ? "running" : "queued")),
         "/root/submissions/submission-1/cancel" => JsonResponse(
             ResultJson("cancelled"),
             HttpStatusCode.Accepted),
@@ -507,9 +600,11 @@ static async Task TestStatefulFacadeAsync()
 
     ResultDocument refreshed = await job.RefreshAsync();
     ResultDocument cancelled = await job.CancelAsync();
+    ResultDocument rejectedRollback = await job.RefreshAsync();
 
     AssertEqual(ResultStatus.Running, refreshed.Status, "facade refreshed status");
     AssertEqual(ResultStatus.Cancelled, cancelled.Status, "facade cancelled status");
+    AssertEqual(ResultStatus.Cancelled, rejectedRollback.Status, "rejected terminal rollback");
     AssertEqual(ResultStatus.Cancelled, job.LatestResult?.Status, "facade latest status");
     AssertEqual(true, job.IsTerminal, "facade terminal state");
     AssertEqual(true, job.CanCancel, "facade cancellation capability");
@@ -517,6 +612,67 @@ static async Task TestStatefulFacadeAsync()
         new[] { ResultStatus.Running, ResultStatus.Cancelled },
         statuses,
         "facade result events");
+}
+
+static async Task TestStaleResultUpdatesAreRejectedAsync()
+{
+    int resultReadCount = 0;
+    var handler = new RecordingHttpHandler(request =>
+    {
+        if (!request.Uri.AbsolutePath.EndsWith("/results/submission-1", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Unexpected request: {request.Uri}");
+        }
+
+        return JsonResponse(
+            resultReadCount++ == 0
+                ? ResultJson("running", ",\"updated_at\":\"2026-07-20T03:00:00Z\"")
+                : ResultJson("queued", ",\"updated_at\":\"2026-07-20T02:00:00Z\""));
+    });
+    using var job = new EmbodiedLabJob(
+        CreateTransport(handler, new QueueWebSocketFactory()),
+        "submission-1",
+        "capability-1",
+        synchronizationContext: null);
+    var statuses = new List<ResultStatus>();
+    job.ResultUpdated += result => statuses.Add(result.Status);
+
+    ResultDocument current = await job.RefreshAsync();
+    ResultDocument stale = await job.RefreshAsync();
+
+    AssertEqual(ResultStatus.Running, current.Status, "current result status");
+    AssertEqual(ResultStatus.Running, stale.Status, "returned stale result replacement");
+    AssertEqual(ResultStatus.Running, job.LatestResult?.Status, "latest non-stale status");
+    AssertSequence(new[] { ResultStatus.Running }, statuses, "accepted result events");
+}
+
+static async Task TestTerminalResultEnrichmentAsync()
+{
+    int resultReadCount = 0;
+    var handler = new RecordingHttpHandler(request =>
+    {
+        if (!request.Uri.AbsolutePath.EndsWith("/results/submission-1", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Unexpected request: {request.Uri}");
+        }
+
+        string updatedAt = resultReadCount++ == 0
+            ? "2026-07-20T02:00:00Z"
+            : "2026-07-20T03:00:00Z";
+        return JsonResponse(
+            ResultJson("completed", $",\"updated_at\":\"{updatedAt}\""));
+    });
+    using var job = new EmbodiedLabJob(
+        CreateTransport(handler, new QueueWebSocketFactory()),
+        "submission-1",
+        "capability-1",
+        synchronizationContext: null);
+
+    await job.RefreshAsync();
+    ResultDocument enriched = await job.RefreshAsync();
+
+    AssertEqual("2026-07-20T03:00:00Z", enriched.UpdatedAt, "terminal enrichment timestamp");
+    AssertEqual("2026-07-20T03:00:00Z", job.LatestResult?.UpdatedAt, "latest enrichment");
 }
 
 static async Task TestFacadeModelSelectionAsync()
@@ -572,6 +728,58 @@ static async Task TestFacadeModelSelectionAsync()
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+}
+
+static async Task TestFacadeRejectsModelFallbackAsync()
+{
+    var cases = new (string ArtifactsJson, Type ExceptionType)[]
+    {
+        (
+            "\"model\":{\"storage\":\"gcs\",\"bucket\":\"models\",\"path\":\"policy.zip\",\"format\":\"zip\"}",
+            typeof(InvalidOperationException)),
+        (
+            "\"onnx_model\":{\"storage\":\"gcs\",\"bucket\":\"models\",\"path\":\"policy.zip\",\"format\":\"zip\"}",
+            typeof(InvalidDataException)),
+    };
+
+    foreach ((string artifactsJson, Type exceptionType) in cases)
+    {
+        var handler = new RecordingHttpHandler(request =>
+        {
+            if (request.Uri.AbsolutePath.EndsWith("/results/submission-1", StringComparison.Ordinal))
+            {
+                string resultBundle =
+                    ",\"result_bundle\":{" +
+                    "\"scenario_id\":\"scenario-1\"," +
+                    "\"job_id\":\"submission-1\"," +
+                    "\"status\":\"completed\"," +
+                    "\"artifacts\":{" + artifactsJson + "}}";
+                return JsonResponse(
+                    ResultJson("completed", resultBundle));
+            }
+
+            throw new InvalidOperationException($"Unexpected artifact request: {request.Uri}");
+        });
+        using var job = new EmbodiedLabJob(
+            CreateTransport(handler, new QueueWebSocketFactory()),
+            "submission-1",
+            "capability-1",
+            synchronizationContext: null);
+        await job.RefreshAsync();
+
+        bool rejected = false;
+        try
+        {
+            await job.DownloadModelAsync(Path.Combine(Path.GetTempPath(), "unused-policy.onnx"));
+        }
+        catch (Exception exception) when (exceptionType.IsInstanceOfType(exception))
+        {
+            rejected = true;
+        }
+
+        AssertEqual(true, rejected, $"{exceptionType.Name} model rejection");
+        AssertEqual(1, handler.Requests.Count, "model rejection request count");
     }
 }
 
@@ -775,9 +983,30 @@ static string ResultJson(string status, string additionalProperties = "")
     return $$"""{"submission_id":"submission-1","status":"{{status}}"{{additionalProperties}}}""";
 }
 
-static ScriptedFrame TextFrame(string text) => new(text, WebSocketMessageType.Text);
+static ScriptedFrame TextFrame(
+    string text,
+    bool endOfMessage = true,
+    TimeSpan delay = default) =>
+    new(text, WebSocketMessageType.Text, endOfMessage, delay);
 
-static ScriptedFrame CloseFrame() => new(string.Empty, WebSocketMessageType.Close);
+static ScriptedFrame CloseFrame() =>
+    new(string.Empty, WebSocketMessageType.Close, true, TimeSpan.Zero);
+
+static async Task AssertThrowsAsync<TException>(Func<Task> action)
+    where TException : Exception
+{
+    try
+    {
+        await action();
+    }
+    catch (TException)
+    {
+        return;
+    }
+
+    throw new InvalidOperationException(
+        $"Expected {typeof(TException).Name}, but no matching exception was thrown.");
+}
 
 static void AssertEqual<T>(T expected, T actual, string description)
 {
@@ -974,7 +1203,11 @@ internal sealed class InterruptedReadStream : Stream
         throw new NotSupportedException();
 }
 
-internal sealed record ScriptedFrame(string Text, WebSocketMessageType MessageType);
+internal sealed record ScriptedFrame(
+    string Text,
+    WebSocketMessageType MessageType,
+    bool EndOfMessage,
+    TimeSpan Delay);
 
 internal sealed class ScriptedWebSocket : IResultWebSocket
 {
@@ -1002,6 +1235,8 @@ internal sealed class ScriptedWebSocket : IResultWebSocket
     public WebSocketState State { get; private set; } = WebSocketState.None;
 
     internal Uri? ConnectedUri { get; private set; }
+
+    internal bool AbortCalled { get; private set; }
 
     public Task ConnectAsync(Uri uri, CancellationToken cancellationToken)
     {
@@ -1031,6 +1266,11 @@ internal sealed class ScriptedWebSocket : IResultWebSocket
         }
 
         ScriptedFrame frame = frames.Dequeue();
+        if (frame.Delay > TimeSpan.Zero)
+        {
+            await Task.Delay(frame.Delay, cancellationToken);
+        }
+
         byte[] bytes = Encoding.UTF8.GetBytes(frame.Text);
         if (bytes.Length > buffer.Count)
         {
@@ -1043,11 +1283,15 @@ internal sealed class ScriptedWebSocket : IResultWebSocket
             State = WebSocketState.CloseReceived;
         }
 
-        return new WebSocketReceiveResult(bytes.Length, frame.MessageType, true);
+        return new WebSocketReceiveResult(
+            bytes.Length,
+            frame.MessageType,
+            frame.EndOfMessage);
     }
 
     public void Abort()
     {
+        AbortCalled = true;
         State = WebSocketState.Aborted;
     }
 

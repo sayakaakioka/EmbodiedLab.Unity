@@ -300,6 +300,20 @@ playback、import 済み sample の Unity compile と canonical world test、rem
 - dependent migration は [EnvForge #18](https://github.com/sayakaakioka/EnvForge/issues/18)
   で追跡し、SDK revision 更新直後に EnvForge 内の duplicate ONNX Runtime binary を削除する
 
+### job recovery と Quickstart 表示のレビュー強化
+
+2026-07-20 のレビュー対応で以下を固定した。
+
+- submission 作成後の training-start 失敗は、submission ID と cancel capability を保持する
+  `EmbodiedLabTrainingStartException.Job` として返し、Quickstart は履歴保存、監視、cancel を継続
+- 履歴 load 失敗後は store を read-only にし、復旧可能な既存 record を後続の Upsert で上書きしない
+- terminal state から別 state への巻き戻しと古い `updated_at` を拒否し、同じ terminal state の
+  新しい artifact 情報は受け入れる
+- result WebSocket の一メッセージを 1 MiB と一 silence interval に制限し、違反時は socket を abort
+- model download は canonical `onnx_model` と `onnx` format の組合せだけを許可
+- Standalone smoke は policy action 成功を必須化
+- Quickstart の最新7件の activity を、背景 panel なしの左上 overlay として severity 色付きで表示
+
 ## 完了した SDK スコープ
 
 - API と WebSocket の base URL だけを持つ `EmbodiedLabEndpoints`

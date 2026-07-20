@@ -12,6 +12,8 @@ var tests = new (string Name, Action Run)[]
     ("Record-only removal", TestRecordOnlyRemoval),
     ("Failed persistence keeps store unchanged", TestFailedPersistence),
     ("Interrupted save recovery", TestInterruptedSaveRecovery),
+    ("Corrupt history prevents replacement", TestCorruptHistoryPreventsReplacement),
+    ("Transparent log overlay buffer", TestLogOverlayBuffer),
     ("Safe submission directory", TestSafeSubmissionDirectory),
     ("Unsafe submission directory rejection", TestUnsafeSubmissionDirectory),
     ("Latest deterministic evaluation chunk", TestReplayChunkSelection),
@@ -262,6 +264,53 @@ static void TestInterruptedSaveRecovery()
         AssertEqual(2, recoveredStore.Records.Count, "records after corrupt temp");
         AssertEqual(false, File.Exists(temporaryPath), "corrupt temp file");
     });
+}
+
+static void TestCorruptHistoryPreventsReplacement()
+{
+    WithStore((directory, store) =>
+    {
+        QuickstartHistoryRecord original = CreateRecord(
+            "submission-1",
+            "2026-07-15T01:00:00.0000000+00:00");
+        original.CancelToken = "recoverable-capability";
+        store.Upsert(original);
+
+        string historyPath = Path.Combine(directory, "job-history.json");
+        const string corruptJson = "{not-json";
+        File.WriteAllText(historyPath, corruptJson);
+
+        AssertThrows<Newtonsoft.Json.JsonException>(() => store.Load());
+        AssertEqual(false, store.IsWritable, "writable state after failed load");
+        AssertEqual(1, store.Records.Count, "preserved in-memory record count");
+        AssertEqual(
+            "recoverable-capability",
+            store.Records[0].CancelToken,
+            "preserved cancellation capability");
+        AssertThrows<InvalidOperationException>(
+            () => store.Upsert(
+                CreateRecord(
+                    "submission-2",
+                    "2026-07-15T02:00:00.0000000+00:00")));
+        AssertEqual(corruptJson, File.ReadAllText(historyPath), "preserved corrupt source");
+    });
+}
+
+static void TestLogOverlayBuffer()
+{
+    var overlay = new QuickstartLogOverlay();
+    for (int index = 0; index < 10; index++)
+    {
+        overlay.Add($"message-{index}");
+    }
+
+    AssertEqual(QuickstartLogOverlay.MaximumEntries, overlay.Entries.Count, "overlay entry count");
+    AssertEqual("message-3", overlay.Entries[0].Message, "oldest retained message");
+    AssertEqual("message-9", overlay.Entries[^1].Message, "newest retained message");
+
+    overlay.Add("message-9", QuickstartLogLevel.Error);
+    AssertEqual(QuickstartLogOverlay.MaximumEntries, overlay.Entries.Count, "deduplicated count");
+    AssertEqual(QuickstartLogLevel.Error, overlay.Entries[^1].Level, "severity upgrade");
 }
 
 static void TestSafeSubmissionDirectory()
