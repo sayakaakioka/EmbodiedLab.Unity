@@ -440,18 +440,43 @@ namespace UnityEngine
 
     public sealed class GUIStyle
     {
+        public GUIStyle()
+        {
+        }
+
+        public GUIStyle(GUIStyle source)
+        {
+        }
+
+        public int fontSize { get; set; }
+
+        public TextClipping clipping { get; set; }
+    }
+
+    public enum TextClipping
+    {
+        Overflow,
+        Clip,
     }
 
     public sealed class GUISkin
     {
         public GUIStyle box => new();
+
+        public GUIStyle label => new();
     }
 
     public static class GUI
     {
         public static bool enabled { get; set; }
 
+        public static Color color { get; set; } = new Color(1f, 1f, 1f);
+
         public static GUISkin skin => new();
+
+        public static void Label(Rect position, string text, GUIStyle style)
+        {
+        }
     }
 
     public static class GUILayout

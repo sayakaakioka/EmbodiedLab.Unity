@@ -53,9 +53,16 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.StandaloneSmoke
             {
                 frameCount++;
                 runner.Tick(QuickstartInferenceRunner.DecisionSeconds);
+                if (!runner.IsRunning)
+                {
+                    Finish(false, runner.Status);
+                    return;
+                }
+
                 if (runner.ObservationStatus.StartsWith(
                     "angle=",
-                    StringComparison.Ordinal))
+                    StringComparison.Ordinal) &&
+                    runner.ActionStatus.StartsWith("raw f=", StringComparison.Ordinal))
                 {
                     string observation = runner.ObservationStatus;
                     string action = runner.ActionStatus;
@@ -76,11 +83,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.StandaloneSmoke
                     return;
                 }
 
-                if (!runner.IsRunning)
-                {
-                    Finish(false, runner.Status);
-                }
-                else if (frameCount >= MaximumFrames)
+                if (frameCount >= MaximumFrames)
                 {
                     Finish(false, "Timed out before the first inference decision.");
                 }

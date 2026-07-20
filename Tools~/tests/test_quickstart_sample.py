@@ -102,6 +102,7 @@ class QuickstartSampleTests(unittest.TestCase):
             "QuickstartController.cs",
             "QuickstartHistoryRecord.cs",
             "QuickstartHistoryStore.cs",
+            "QuickstartLogOverlay.cs",
             "QuickstartWorldBuilder.cs",
             "QuickstartReplayPlayer.cs",
             "QuickstartReplayTimeline.cs",
@@ -126,6 +127,34 @@ class QuickstartSampleTests(unittest.TestCase):
         self.assertIn("Application.persistentDataPath", controller)
         self.assertIn("Local history (newest first)", controller)
         self.assertIn("QuickstartLocalPaths.GetModelPath", controller)
+
+    def test_status_log_is_a_transparent_top_left_overlay(self) -> None:
+        controller = (SAMPLE_DIRECTORY / "QuickstartController.cs").read_text(
+            encoding="utf-8"
+        )
+        overlay = (SAMPLE_DIRECTORY / "QuickstartLogOverlay.cs").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("logOverlay?.Draw(12f, 12f, 760f)", controller)
+        self.assertIn("MaximumEntries = 7", overlay)
+        self.assertIn("GUI.Label", overlay)
+        self.assertNotIn("GUI.Box", overlay)
+        self.assertNotIn("GUI.DrawTexture", overlay)
+
+    def test_standalone_smoke_requires_a_successful_action(self) -> None:
+        smoke = (
+            REPOSITORY_ROOT
+            / "Tests~"
+            / "QuickstartStandaloneSmoke"
+            / "QuickstartStandaloneSmoke.cs"
+        ).read_text(encoding="utf-8")
+
+        stopped_index = smoke.index("if (!runner.IsRunning)")
+        action_index = smoke.index('runner.ActionStatus.StartsWith("raw f="')
+        successful_finish = re.search(r"Finish\(\s*true,", smoke[action_index:])
+        self.assertLess(stopped_index, action_index)
+        self.assertIsNotNone(successful_finish)
 
     def test_controller_guards_cloud_job_operations(self) -> None:
         controller = (SAMPLE_DIRECTORY / "QuickstartController.cs").read_text(

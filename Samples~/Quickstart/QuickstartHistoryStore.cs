@@ -18,6 +18,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         private readonly string filePath;
         private readonly List<QuickstartHistoryRecord> records = new();
+        private bool isWritable;
 
         internal QuickstartHistoryStore(string filePath)
         {
@@ -28,19 +29,24 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         internal IReadOnlyList<QuickstartHistoryRecord> Records => records;
 
+        internal bool IsWritable => isWritable;
+
         internal void Load()
         {
-            records.Clear();
+            isWritable = false;
             RecoverInterruptedSave();
             if (!File.Exists(filePath))
             {
+                records.Clear();
+                isWritable = true;
                 return;
             }
 
             List<QuickstartHistoryRecord> loaded = DeserializeRecords(
                 File.ReadAllText(filePath));
-            records.AddRange(loaded);
-            SortNewestFirst();
+            SortNewestFirst(loaded);
+            ReplaceRecords(loaded);
+            isWritable = true;
         }
 
         internal QuickstartHistoryRecord? Find(string submissionId)
@@ -54,6 +60,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         internal void Upsert(QuickstartHistoryRecord record)
         {
+            EnsureWritable();
             Validate(record);
             var updatedRecords = new List<QuickstartHistoryRecord>(records);
             int existingIndex = updatedRecords.FindIndex(
@@ -77,6 +84,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         internal bool Remove(string submissionId)
         {
+            EnsureWritable();
             var updatedRecords = new List<QuickstartHistoryRecord>(records);
             int removed = updatedRecords.RemoveAll(
                 record => string.Equals(
@@ -147,11 +155,6 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             return submittedAt;
         }
 
-        private void SortNewestFirst()
-        {
-            SortNewestFirst(records);
-        }
-
         private static void SortNewestFirst(List<QuickstartHistoryRecord> targetRecords)
         {
             targetRecords.Sort(
@@ -162,6 +165,15 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         {
             records.Clear();
             records.AddRange(updatedRecords);
+        }
+
+        private void EnsureWritable()
+        {
+            if (!isWritable)
+            {
+                throw new InvalidOperationException(
+                    "Quickstart history cannot be changed because loading did not complete.");
+            }
         }
 
         private void RecoverInterruptedSave()

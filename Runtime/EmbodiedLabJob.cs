@@ -1,6 +1,8 @@
 #nullable enable
 
 using System;
+using System.Globalization;
+using System.IO;
 using System.Threading;
 using EmbodiedLab.Contracts;
 using EmbodiedLab.Unity.Internal;
@@ -83,15 +85,51 @@ namespace EmbodiedLab.Unity
                 endpoints.ResultWebSocketBaseUri);
             try
             {
-                SubmissionResponse submission = await transport.SubmitAsync(
-                    scenario,
-                    cancellationToken);
-                string submissionId = RequireValue(
-                    submission.SubmissionId,
-                    nameof(submission.SubmissionId));
-                string cancelToken = RequireValue(
-                    submission.CancelToken,
-                    nameof(submission.CancelToken));
+                return await SubmitAsync(transport, scenario, context, cancellationToken);
+            }
+            catch (EmbodiedLabTrainingStartException)
+            {
+                throw;
+            }
+            catch
+            {
+                transport.Dispose();
+                throw;
+            }
+        }
+
+        internal static async Awaitable<EmbodiedLabJob> SubmitAsync(
+            EmbodiedLabTransport transport,
+            ScenarioBundle scenario,
+            SynchronizationContext? synchronizationContext,
+            CancellationToken cancellationToken)
+        {
+            if (transport == null)
+            {
+                throw new ArgumentNullException(nameof(transport));
+            }
+
+            if (scenario == null)
+            {
+                throw new ArgumentNullException(nameof(scenario));
+            }
+
+            SubmissionResponse submission = await transport.SubmitAsync(
+                scenario,
+                cancellationToken);
+            string submissionId = RequireValue(
+                submission.SubmissionId,
+                nameof(submission.SubmissionId));
+            string cancelToken = RequireValue(
+                submission.CancelToken,
+                nameof(submission.CancelToken));
+            var job = new EmbodiedLabJob(
+                transport,
+                submissionId,
+                cancelToken,
+                synchronizationContext);
+            try
+            {
                 TrainingResponse training = await transport.StartTrainingAsync(
                     submissionId,
                     cancellationToken);
@@ -103,18 +141,13 @@ namespace EmbodiedLab.Unity
                     throw new InvalidOperationException(
                         "EmbodiedLab accepted training for a different submission.");
                 }
-
-                return new EmbodiedLabJob(
-                    transport,
-                    submissionId,
-                    cancelToken,
-                    context);
             }
-            catch
+            catch (Exception exception)
             {
-                transport.Dispose();
-                throw;
+                throw new EmbodiedLabTrainingStartException(job, exception);
             }
+
+            return job;
         }
 
         public static EmbodiedLabJob Restore(
@@ -171,7 +204,7 @@ namespace EmbodiedLab.Unity
             {
                 await transport.MonitorResultAsync(
                     SubmissionId,
-                    PublishResult,
+                    result => PublishResult(result),
                     operationCancellation.Token);
                 ResultDocument? result = LatestResult;
                 if (result == null || !IsTerminalStatus(result.Status))
@@ -200,8 +233,7 @@ namespace EmbodiedLab.Unity
             ResultDocument result = await transport.GetResultAsync(
                 SubmissionId,
                 operationCancellation.Token);
-            PublishResult(result);
-            return result;
+            return PublishResult(result);
         }
 
         public async Awaitable<ResultDocument> CancelAsync(
@@ -215,8 +247,7 @@ namespace EmbodiedLab.Unity
                 SubmissionId,
                 cancelToken,
                 operationCancellation.Token);
-            PublishResult(result);
-            return result;
+            return PublishResult(result);
         }
 
         public async Awaitable DownloadReplayBundleAsync(
@@ -264,10 +295,14 @@ namespace EmbodiedLab.Unity
         {
             ResultArtifacts artifacts = GetArtifacts();
             ArtifactLocation model = artifacts.OnnxModel ??
-                ToArtifactLocation(artifacts.SentisModel) ??
-                artifacts.Model ??
                 throw new InvalidOperationException(
-                    "The latest result does not contain a trained model artifact.");
+                    "The latest result does not contain an ONNX model artifact.");
+            if (model.Format != ArtifactFormat.Onnx)
+            {
+                throw new InvalidDataException(
+                    "The ONNX model artifact must declare the ONNX format.");
+            }
+
             using CancellationTokenSource operationCancellation =
                 CreateOperationCancellationThreadSafe(cancellationToken);
             await transport.DownloadArtifactAsync(
@@ -308,22 +343,6 @@ namespace EmbodiedLab.Unity
             return status == ResultStatus.Completed ||
                 status == ResultStatus.Failed ||
                 status == ResultStatus.Cancelled;
-        }
-
-        private static ArtifactLocation? ToArtifactLocation(ModelArtifactLocation? model)
-        {
-            if (model == null)
-            {
-                return null;
-            }
-
-            return new ArtifactLocation
-            {
-                Bucket = model.Bucket,
-                Format = model.Format,
-                Path = model.Path,
-                Storage = model.Storage,
-            };
         }
 
         private static ArtifactLocation CreateReplayChunkArtifact(
@@ -395,7 +414,7 @@ namespace EmbodiedLab.Unity
                 lifetimeCancellation.Token);
         }
 
-        private void PublishResult(ResultDocument result)
+        private ResultDocument PublishResult(ResultDocument result)
         {
             if (result == null)
             {
@@ -412,7 +431,12 @@ namespace EmbodiedLab.Unity
             {
                 if (disposed)
                 {
-                    return;
+                    return latestResult ?? result;
+                }
+
+                if (latestResult != null && !ShouldAcceptResult(latestResult, result))
+                {
+                    return latestResult;
                 }
 
                 latestResult = result;
@@ -422,10 +446,34 @@ namespace EmbodiedLab.Unity
                 !ReferenceEquals(SynchronizationContext.Current, synchronizationContext))
             {
                 synchronizationContext.Post(_ => RaiseResultUpdated(result), null);
-                return;
+                return result;
             }
 
             RaiseResultUpdated(result);
+            return result;
+        }
+
+        private static bool ShouldAcceptResult(
+            ResultDocument current,
+            ResultDocument candidate)
+        {
+            if (IsTerminalStatus(current.Status) && current.Status != candidate.Status)
+            {
+                return false;
+            }
+
+            return !TryParseUpdatedAt(current.UpdatedAt, out DateTimeOffset currentTime) ||
+                !TryParseUpdatedAt(candidate.UpdatedAt, out DateTimeOffset candidateTime) ||
+                candidateTime >= currentTime;
+        }
+
+        private static bool TryParseUpdatedAt(string value, out DateTimeOffset timestamp)
+        {
+            return DateTimeOffset.TryParse(
+                value,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out timestamp);
         }
 
         private void RaiseResultUpdated(ResultDocument result)

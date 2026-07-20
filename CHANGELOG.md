@@ -34,6 +34,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Run/Stop reset, and visible contract violations.
 - Real-policy Unity Editor inference and Windows x64 Standalone build/run smoke
   validation without adding a public SDK inference API or Sentis dependency.
+- Recoverable training-start failures that retain the submitted job handle and
+  its cloud cancellation capability.
+- A background-free Quickstart status overlay anchored at the Game view's
+  upper-left corner with bounded, severity-colored entries.
+
+### Changed
+
+- Keep Quickstart history read-only after a failed load so a later update cannot
+  replace recoverable records or cancellation capabilities.
+- Keep terminal job states sticky, ignore timestamped stale updates, and still
+  accept newer enrichment for the same terminal state.
+- Require the canonical ONNX artifact and a declared ONNX format for policy
+  download, and require a successful action before Standalone smoke can pass.
 
 ### Security
 
@@ -44,3 +57,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   files on rejection or interruption.
 - Bound replay manifest metadata, gzip expansion, JSONL row size, and total
   replay steps before untrusted artifacts can exhaust disk, memory, or CPU.
+- Bound each accumulated result WebSocket message to 1 MiB and one silence
+  interval, aborting oversized or indefinitely fragmented streams.

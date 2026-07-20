@@ -14,6 +14,7 @@
     <Compile Include="../../Samples~/Quickstart/QuickstartHistoryRecord.cs" Link="Samples/QuickstartHistoryRecord.cs" />
     <Compile Include="../../Samples~/Quickstart/QuickstartHistoryStore.cs" Link="Samples/QuickstartHistoryStore.cs" />
     <Compile Include="../../Samples~/Quickstart/QuickstartLocalPaths.cs" Link="Samples/QuickstartLocalPaths.cs" />
+    <Compile Include="../../Samples~/Quickstart/QuickstartLogOverlay.cs" Link="Samples/QuickstartLogOverlay.cs" />
     <Compile Include="../../Samples~/Quickstart/QuickstartReplayTimeline.cs" Link="Samples/QuickstartReplayTimeline.cs" />
     <Compile Include="../../Samples~/Quickstart/QuickstartReplayPlayer.cs" Link="Samples/QuickstartReplayPlayer.cs" />
     <Compile Include="../../Samples~/Quickstart/QuickstartInferenceMath.cs" Link="Samples/QuickstartInferenceMath.cs" />
