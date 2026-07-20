@@ -306,6 +306,8 @@ playback、import 済み sample の Unity compile と canonical world test、rem
 
 - submission 作成後の training-start 失敗は、submission ID と cancel capability を保持する
   `EmbodiedLabTrainingStartException.Job` として返し、Quickstart は履歴保存、監視、cancel を継続
+- submission 作成前に SDK が idempotency key と cancel capability を生成し、曖昧なHTTP失敗を
+  同じ値で一度だけ再試行。APIが同じsubmissionとcapabilityを返した場合だけ処理を継続
 - 履歴 load 失敗後は store を read-only にし、復旧可能な既存 record を後続の Upsert で上書きしない
 - terminal state から別 state への巻き戻しと古い `updated_at` を拒否し、同じ terminal state の
   新しい artifact 情報は受け入れる

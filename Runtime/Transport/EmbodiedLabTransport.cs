@@ -1,11 +1,13 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.WebSockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,6 +20,8 @@ namespace EmbodiedLab.Unity.Internal
     internal sealed class EmbodiedLabTransport : IDisposable
     {
         private const string JsonMediaType = "application/json";
+        private const string IdempotencyKeyHeader = "Idempotency-Key";
+        private const string ClientCancelTokenHeader = "X-EmbodiedLab-Cancel-Token";
         private const string PublicGcsBaseUrl = "https://storage.googleapis.com";
         private const long MaximumJsonArtifactBytes = 1024L * 1024L;
         private const long MaximumReplayArtifactBytes = 64L * 1024L * 1024L;
@@ -73,7 +77,7 @@ namespace EmbodiedLab.Unity.Internal
             this.delayAsync = delayAsync ?? throw new ArgumentNullException(nameof(delayAsync));
         }
 
-        internal Task<SubmissionResponse> SubmitAsync(
+        internal async Task<SubmissionResponse> SubmitAsync(
             ScenarioBundle scenario,
             CancellationToken cancellationToken)
         {
@@ -82,12 +86,44 @@ namespace EmbodiedLab.Unity.Internal
                 throw new ArgumentNullException(nameof(scenario));
             }
 
-            return SendJsonAsync<SubmissionResponse>(
-                HttpMethod.Post,
-                BuildApiUri("submissions"),
-                JsonConvert.SerializeObject(scenario, SerializerSettings),
-                authorization: null,
-                cancellationToken);
+            string idempotencyKey = CreateRecoveryValue();
+            string cancelToken = CreateRecoveryValue();
+            var recoveryHeaders = new Dictionary<string, string>
+            {
+                [IdempotencyKeyHeader] = idempotencyKey,
+                [ClientCancelTokenHeader] = cancelToken,
+            };
+            int attempt = 0;
+            while (true)
+            {
+                try
+                {
+                    SubmissionResponse response = await SendJsonAsync<SubmissionResponse>(
+                            HttpMethod.Post,
+                            BuildApiUri("submissions"),
+                            JsonConvert.SerializeObject(scenario, SerializerSettings),
+                            authorization: null,
+                            cancellationToken,
+                            recoveryHeaders)
+                        .ConfigureAwait(false);
+                    if (!string.Equals(
+                            response.CancelToken,
+                            cancelToken,
+                            StringComparison.Ordinal))
+                    {
+                        throw new InvalidDataException(
+                            "EmbodiedLab returned a different cancellation capability.");
+                    }
+
+                    return response;
+                }
+                catch (Exception exception) when (
+                    attempt == 0 &&
+                    IsAmbiguousSubmissionFailure(exception, cancellationToken))
+                {
+                    attempt++;
+                }
+            }
         }
 
         internal Task<TrainingResponse> StartTrainingAsync(
@@ -386,6 +422,27 @@ namespace EmbodiedLab.Unity.Internal
             return value;
         }
 
+        private static string CreateRecoveryValue()
+        {
+            byte[] bytes = new byte[32];
+            using RandomNumberGenerator generator = RandomNumberGenerator.Create();
+            generator.GetBytes(bytes);
+            return Convert.ToBase64String(bytes)
+                .TrimEnd('=')
+                .Replace('+', '-')
+                .Replace('/', '_');
+        }
+
+        private static bool IsAmbiguousSubmissionFailure(
+            Exception exception,
+            CancellationToken cancellationToken)
+        {
+            return exception is HttpRequestException ||
+                exception is JsonException ||
+                (exception is TaskCanceledException &&
+                    !cancellationToken.IsCancellationRequested);
+        }
+
         private Uri BuildApiUri(params string[] segments)
         {
             return BuildRelativeUri(apiBaseUri, segments);
@@ -407,11 +464,20 @@ namespace EmbodiedLab.Unity.Internal
             Uri requestUri,
             string? requestJson,
             AuthenticationHeaderValue? authorization,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            IReadOnlyDictionary<string, string>? requestHeaders = null)
         {
             using HttpRequestMessage request = new(method, requestUri);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(JsonMediaType));
             request.Headers.Authorization = authorization;
+            if (requestHeaders != null)
+            {
+                foreach (KeyValuePair<string, string> header in requestHeaders)
+                {
+                    request.Headers.Add(header.Key, header.Value);
+                }
+            }
+
             if (requestJson != null)
             {
                 request.Content = new StringContent(requestJson, Encoding.UTF8, JsonMediaType);

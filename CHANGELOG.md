@@ -36,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   validation without adding a public SDK inference API or Sentis dependency.
 - Recoverable training-start failures that retain the submitted job handle and
   its cloud cancellation capability.
+- Idempotent submission recovery using client-generated request and cancellation
+  capabilities, with one safe retry after an ambiguous response loss.
 - A background-free Quickstart status overlay anchored at the Game view's
   upper-left corner with bounded, severity-colored entries.
 
