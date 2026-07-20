@@ -10,6 +10,9 @@ var tests = new (string Name, Func<Task> Run)[]
 {
     ("Endpoint encryption", TestEndpointEncryptionAsync),
     ("HTTP contracts", TestHttpContractsAsync),
+    ("Submission response recovery", TestSubmissionResponseRecoveryAsync),
+    ("Bounded submission recovery", TestBoundedSubmissionRecoveryAsync),
+    ("Submission capability mismatch", TestSubmissionCapabilityMismatchAsync),
     ("Recoverable training start failure", TestRecoverableTrainingStartFailureAsync),
     ("WebSocket primary", TestHealthyWebSocketUsesNoResultGetAsync),
     ("WebSocket message limit", TestWebSocketMessageLimitAsync),
@@ -136,7 +139,7 @@ static async Task TestHttpContractsAsync()
     var handler = new RecordingHttpHandler(request => request.Uri.AbsolutePath switch
     {
         "/root/submissions" => JsonResponse(
-            """{"cancel_token":"capability-1","status":"accepted","submission_id":"submission-1"}"""),
+            $$"""{"cancel_token":"{{request.ClientCancelToken}}","status":"accepted","submission_id":"submission-1"}"""),
         "/root/submissions/submission-1/train" => JsonResponse(
             """{"status":"accepted","submission_id":"submission-1"}"""),
         "/root/submissions/submission-1/cancel" => JsonResponse(
@@ -161,7 +164,14 @@ static async Task TestHttpContractsAsync()
         submitted.CancelToken,
         CancellationToken.None);
 
-    AssertEqual("capability-1", submitted.CancelToken, "submission capability");
+    RecordedRequest submissionRequest = handler.Requests.Single(
+        request => request.Uri.AbsolutePath.EndsWith("/submissions", StringComparison.Ordinal));
+    AssertEqual(
+        submissionRequest.ClientCancelToken,
+        submitted.CancelToken,
+        "submission capability");
+    AssertEqual(true, submissionRequest.IdempotencyKey?.Length >= 32, "idempotency key");
+    AssertEqual(true, submitted.CancelToken.Length >= 32, "client cancellation capability");
     AssertEqual("submission-1", training.SubmissionId, "training submission");
     AssertEqual(ResultStatus.Running, result.Status, "result status");
     AssertEqual(ResultStatus.Cancelled, cancelled.Status, "cancel status");
@@ -169,7 +179,99 @@ static async Task TestHttpContractsAsync()
     RecordedRequest cancelRequest = handler.Requests.Single(
         request => request.Uri.AbsolutePath.EndsWith("/cancel", StringComparison.Ordinal));
     AssertEqual("Bearer", cancelRequest.Authorization?.Scheme, "cancel auth scheme");
-    AssertEqual("capability-1", cancelRequest.Authorization?.Parameter, "cancel auth token");
+    AssertEqual(submitted.CancelToken, cancelRequest.Authorization?.Parameter, "cancel auth token");
+}
+
+static async Task TestSubmissionResponseRecoveryAsync()
+{
+    int submissionAttempts = 0;
+    var handler = new RecordingHttpHandler(request =>
+    {
+        if (!request.Uri.AbsolutePath.EndsWith("/submissions", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Unexpected request: {request.Uri}");
+        }
+
+        submissionAttempts++;
+        if (submissionAttempts == 1)
+        {
+            return JsonResponse("{");
+        }
+
+        return JsonResponse(
+            $$"""{"cancel_token":"{{request.ClientCancelToken}}","status":"accepted","submission_id":"submission-1"}""");
+    });
+    using var transport = CreateTransport(handler, new QueueWebSocketFactory());
+
+    SubmissionResponse recovered = await transport.SubmitAsync(
+        new ScenarioBundle { ScenarioId = "scenario-1" },
+        CancellationToken.None);
+
+    AssertEqual(2, handler.Requests.Count, "submission recovery attempts");
+    AssertEqual(
+        handler.Requests[0].IdempotencyKey,
+        handler.Requests[1].IdempotencyKey,
+        "reused idempotency key");
+    AssertEqual(
+        handler.Requests[0].ClientCancelToken,
+        handler.Requests[1].ClientCancelToken,
+        "reused cancellation capability");
+    AssertEqual(handler.Requests[0].Body, handler.Requests[1].Body, "reused scenario body");
+    AssertEqual(
+        false,
+        string.Equals(
+            handler.Requests[1].IdempotencyKey,
+            handler.Requests[1].ClientCancelToken,
+            StringComparison.Ordinal),
+        "independent recovery values");
+    AssertEqual(
+        handler.Requests[1].ClientCancelToken,
+        recovered.CancelToken,
+        "recovered cancellation capability");
+}
+
+static async Task TestBoundedSubmissionRecoveryAsync()
+{
+    var handler = new RecordingHttpHandler(request =>
+        throw new HttpRequestException($"Submission response was lost: {request.Uri}"));
+    using var transport = CreateTransport(handler, new QueueWebSocketFactory());
+
+    await AssertThrowsAsync<HttpRequestException>(
+        () => transport.SubmitAsync(
+            new ScenarioBundle { ScenarioId = "scenario-1" },
+            CancellationToken.None));
+
+    AssertEqual(2, handler.Requests.Count, "bounded submission attempts");
+    AssertEqual(
+        handler.Requests[0].IdempotencyKey,
+        handler.Requests[1].IdempotencyKey,
+        "bounded retry idempotency key");
+    AssertEqual(
+        handler.Requests[0].ClientCancelToken,
+        handler.Requests[1].ClientCancelToken,
+        "bounded retry cancellation capability");
+}
+
+static async Task TestSubmissionCapabilityMismatchAsync()
+{
+    var handler = new RecordingHttpHandler(request =>
+    {
+        if (!request.Uri.AbsolutePath.EndsWith("/submissions", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Unexpected request: {request.Uri}");
+        }
+
+        return JsonResponse(
+            """{"cancel_token":"different-server-capability-00000001","status":"accepted","submission_id":"submission-1"}""");
+    });
+    using var transport = CreateTransport(handler, new QueueWebSocketFactory());
+
+    await AssertThrowsAsync<InvalidDataException>(
+        () => transport.SubmitAsync(
+            new ScenarioBundle { ScenarioId = "scenario-1" },
+            CancellationToken.None));
+
+    AssertEqual(1, handler.Requests.Count, "capability mismatch request count");
 }
 
 static async Task TestRecoverableTrainingStartFailureAsync()
@@ -177,7 +279,7 @@ static async Task TestRecoverableTrainingStartFailureAsync()
     var handler = new RecordingHttpHandler(request => request.Uri.AbsolutePath switch
     {
         "/root/submissions" => JsonResponse(
-            """{"cancel_token":"capability-1","status":"accepted","submission_id":"submission-1"}"""),
+            $$"""{"cancel_token":"{{request.ClientCancelToken}}","status":"accepted","submission_id":"submission-1"}"""),
         "/root/submissions/submission-1/train" => throw new HttpRequestException(
             "Training response was lost."),
         _ => throw new InvalidOperationException($"Unexpected request: {request.Uri}"),
@@ -195,7 +297,10 @@ static async Task TestRecoverableTrainingStartFailureAsync()
     {
         using EmbodiedLabJob recoverableJob = exception.Job;
         AssertEqual("submission-1", recoverableJob.SubmissionId, "recoverable submission ID");
-        AssertEqual("capability-1", recoverableJob.CancelToken, "recoverable capability");
+        AssertEqual(
+            handler.Requests[0].ClientCancelToken,
+            recoverableJob.CancelToken,
+            "recoverable capability");
         AssertEqual(
             typeof(HttpRequestException),
             exception.InnerException?.GetType(),
@@ -1051,6 +1156,8 @@ internal sealed record RecordedRequest(
     HttpMethod Method,
     Uri Uri,
     AuthenticationHeaderValue? Authorization,
+    string? IdempotencyKey,
+    string? ClientCancelToken,
     string? Body);
 
 internal sealed class RecordingHttpHandler : HttpMessageHandler
@@ -1072,10 +1179,17 @@ internal sealed class RecordingHttpHandler : HttpMessageHandler
             request.Method,
             request.RequestUri ?? throw new InvalidOperationException("Request URI is missing."),
             request.Headers.Authorization,
+            GetHeader(request, "Idempotency-Key"),
+            GetHeader(request, "X-EmbodiedLab-Cancel-Token"),
             request.Content == null ? null : await request.Content.ReadAsStringAsync());
         Requests.Add(recorded);
         return responder(recorded);
     }
+
+    private static string? GetHeader(HttpRequestMessage request, string name) =>
+        request.Headers.TryGetValues(name, out IEnumerable<string>? values)
+            ? values.Single()
+            : null;
 }
 
 internal sealed class RepeatingReadStream : Stream

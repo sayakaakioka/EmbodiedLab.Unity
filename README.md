@@ -126,6 +126,11 @@ be confirmed, `SubmitAsync` throws `EmbodiedLabTrainingStartException`. Its
 caller can persist, monitor, or cancel the submission. The caller owns and must
 dispose that recoverable job handle.
 
+Submission creation uses a client-generated idempotency key and cancellation
+capability. If the HTTP response is lost ambiguously, the transport retries once
+with the same values. A compatible API resolves the retry to the original
+submission and echoes the same capability; a different capability is rejected.
+
 The replay-bundle artifact currently points to its manifest, so
 `DownloadReplayBundleAsync` saves that manifest. `DownloadModelAsync` requires
 an `onnx_model` artifact that declares the ONNX format; it does not fall back to
