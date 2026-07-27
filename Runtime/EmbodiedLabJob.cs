@@ -294,7 +294,7 @@ namespace EmbodiedLab.Unity
             CancellationToken cancellationToken = default)
         {
             ResultArtifacts artifacts = GetArtifacts();
-            ArtifactLocation model = artifacts.OnnxModel ??
+            ModelArtifactLocation model = artifacts.OnnxModel ??
                 throw new InvalidOperationException(
                     "The latest result does not contain an ONNX model artifact.");
             if (model.Format != ArtifactFormat.Onnx)
@@ -306,7 +306,13 @@ namespace EmbodiedLab.Unity
             using CancellationTokenSource operationCancellation =
                 CreateOperationCancellationThreadSafe(cancellationToken);
             await transport.DownloadArtifactAsync(
-                model,
+                new ArtifactLocation
+                {
+                    Storage = model.Storage,
+                    Bucket = model.Bucket,
+                    Path = model.Path,
+                    Format = model.Format,
+                },
                 destinationPath,
                 operationCancellation.Token);
         }

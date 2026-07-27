@@ -3,12 +3,14 @@
 ## 現在のフェーズ
 
 キャンセル可能な v0 契約、WebSocket 優先の内部 transport、状態を持つ
-`EmbodiedLabJob` facade、用途別の最小シナリオ／リプレイ API、EnvForge
-の SDK 移行、固定環境の Quickstart sample、canonical world 表示、sample-local
-job history、成果物 download と replay reader の resource budget 固定、Replay
-playback、import 済み sample の Unity compile と canonical world test、remote endpoint
-の HTTPS／WSS invariant、Quickstart の Windows x64 ONNX inference まで完了した。
-次は、固定 mode と4分割壁パーツ生成 mode の選択を扱う。
+`EmbodiedLabJob` facade、固定環境の Quickstart sample、canonical world 表示、
+sample-local job history、bounded artifact/replay reader、Replay playback、
+remote endpoint の HTTPS／WSS invariant、Windows x64 ONNX inference まで実装済みである。
+
+現在は、人間が SDK 全体を初めてレビューできる状態にするため、EmbodiedLab の
+producer、Pydantic model、JSON Schema、generated DTO、fixture、SDK resource limit を
+同じ v0 contract へ厳密に揃えている。EnvForge の現行実装はこの contract を制約せず、
+EnvForge の再移行は第二段階とする。
 
 ## 合意済みの設計
 
@@ -24,6 +26,7 @@ playback、import 済み sample の Unity compile と canonical world test、rem
   行わない。HTTP の Result Document 取得は、接続失敗、切断、長時間更新なし、
   または利用者による明示更新時の照合に限定する。
 - submit、train、cancel、成果物取得は一回性の HTTP 操作として扱う。
+- train と cancel の POST は API 契約どおり request body を送らない。
 - submission 作成時に一度だけ返される capability token を job handle が保持し、
   cloud cancel の Bearer token として使う。C# の `CancellationToken` はローカルの
   待機だけを中止し、cloud job の停止には `CancelAsync` を使う。
@@ -81,7 +84,7 @@ playback、import 済み sample の Unity compile と canonical world test、rem
 [EmbodiedLab.Unity #4](https://github.com/sayakaakioka/EmbodiedLab.Unity/pull/4)
 で以下を完了した。
 
-- EmbodiedLab `contracts/v0` の 6 schema と upstream provenance を同期した。
+- EmbodiedLab `contracts/v0` の当時の6 schema と upstream provenance を同期した。
 - 現在の schema 構文だけを正規化し、NJsonSchema で C# DTO を決定的に生成した。
 - canonical fixture の .NET round trip、具象型、Replay Log の検証を追加した。
 - CI で schema drift、再生成差分、コンパイル、テスト、lint、JSON を検証した。
@@ -233,6 +236,10 @@ playback、import 済み sample の Unity compile と canonical world test、rem
   step 数 100,000 までに制限
 - replay log は展開後 256 MiB、UTF-8 JSONL 1行 1 MiB、返却 step 数 100,000
   までに制限
+- backend は `eval_episodes * max_episode_steps <= 100000` を検証し、deterministic
+  evaluation を SDK が読める一つの chunk に収める
+- backend は Replay JSONL を書く前に各行を検証し、manifest と同じ
+  `scenario_id` / `job_id` を必ず付与する
 - 公開 API や runtime 設定を増やさず、SDK 内部の固定 invariant として実装
 
 ### Quickstart の Replay playback
@@ -338,7 +345,11 @@ EmbodiedLab の実行基盤へ追加しない。
 
 ## 次の段階
 
-1. 固定モードと 4 分割壁パーツ生成モードの選択を追加する。
+1. [human-review-guide.md](human-review-guide.md) に沿って SDK の責務と主導線を
+   人間が確認する。
+2. package version、tag、release 手順を決める。
+3. 第二段階として EnvForge を確定した SDK contract へ追従させる。
+4. その後、固定 mode と宣言的 generated mode の選択を設計する。
 
 各段階を一つの Issue と小さな PR に分け、テストと lint が通った状態で次へ進む。
 

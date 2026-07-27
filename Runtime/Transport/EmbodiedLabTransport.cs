@@ -133,7 +133,7 @@ namespace EmbodiedLab.Unity.Internal
             return SendJsonAsync<TrainingResponse>(
                 HttpMethod.Post,
                 BuildApiUri("submissions", RequireValue(submissionId, nameof(submissionId)), "train"),
-                "{}",
+                requestJson: null,
                 authorization: null,
                 cancellationToken);
         }
@@ -161,7 +161,7 @@ namespace EmbodiedLab.Unity.Internal
             return SendJsonAsync<ResultDocument>(
                 HttpMethod.Post,
                 BuildApiUri("submissions", RequireValue(submissionId, nameof(submissionId)), "cancel"),
-                "{}",
+                requestJson: null,
                 authorization,
                 cancellationToken);
         }

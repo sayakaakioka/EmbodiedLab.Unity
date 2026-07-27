@@ -176,8 +176,12 @@ static async Task TestHttpContractsAsync()
     AssertEqual(ResultStatus.Running, result.Status, "result status");
     AssertEqual(ResultStatus.Cancelled, cancelled.Status, "cancel status");
     AssertEqual(4, handler.Requests.Count, "HTTP request count");
+    RecordedRequest trainingRequest = handler.Requests.Single(
+        request => request.Uri.AbsolutePath.EndsWith("/train", StringComparison.Ordinal));
+    AssertEqual<string?>(null, trainingRequest.Body, "training request body");
     RecordedRequest cancelRequest = handler.Requests.Single(
         request => request.Uri.AbsolutePath.EndsWith("/cancel", StringComparison.Ordinal));
+    AssertEqual<string?>(null, cancelRequest.Body, "cancel request body");
     AssertEqual("Bearer", cancelRequest.Authorization?.Scheme, "cancel auth scheme");
     AssertEqual(submitted.CancelToken, cancelRequest.Authorization?.Parameter, "cancel auth token");
 }
@@ -797,8 +801,31 @@ static async Task TestFacadeModelSelectionAsync()
                       "status":"completed",
                       "artifacts":{
                         "model":{"storage":"gcs","bucket":"models","path":"policy.zip","format":"zip"},
-                        "onnx_model":{"storage":"gcs","bucket":"models","path":"policy.onnx","format":"onnx"},
-                        "sentis_model":{"storage":"gcs","bucket":"models","path":"policy.sentis.onnx","format":"onnx","target":"unity-sentis"}
+                        "onnx_model":{
+                          "storage":"gcs",
+                          "bucket":"models",
+                          "path":"policy.onnx",
+                          "format":"onnx",
+                          "target":"onnx-runtime",
+                          "opset_version":17,
+                          "inputs":[
+                            {"name":"obs_0","shape":[-1,3,84,112],"dtype":"float32"},
+                            {"name":"obs_1","shape":[-1,2],"dtype":"float32"}
+                          ],
+                          "output":{"name":"action","layout":["forward","turn"]}
+                        },
+                        "sentis_model":{
+                          "storage":"gcs",
+                          "bucket":"models",
+                          "path":"policy.sentis.onnx",
+                          "format":"onnx",
+                          "target":"unity-sentis",
+                          "opset_version":15,
+                          "inputs":[
+                            {"name":"observation","shape":[1,28226],"dtype":"float32"}
+                          ],
+                          "output":{"name":"action","layout":["forward","turn"]}
+                        }
                       }
                     }
                     """));
@@ -844,7 +871,14 @@ static async Task TestFacadeRejectsModelFallbackAsync()
             "\"model\":{\"storage\":\"gcs\",\"bucket\":\"models\",\"path\":\"policy.zip\",\"format\":\"zip\"}",
             typeof(InvalidOperationException)),
         (
-            "\"onnx_model\":{\"storage\":\"gcs\",\"bucket\":\"models\",\"path\":\"policy.zip\",\"format\":\"zip\"}",
+            "\"onnx_model\":{" +
+            "\"storage\":\"gcs\",\"bucket\":\"models\"," +
+            "\"path\":\"policy.zip\",\"format\":\"zip\"," +
+            "\"target\":\"onnx-runtime\",\"opset_version\":17," +
+            "\"inputs\":[{\"name\":\"obs_0\",\"shape\":[-1,3,84,112]," +
+            "\"dtype\":\"float32\"},{\"name\":\"obs_1\",\"shape\":[-1,2]," +
+            "\"dtype\":\"float32\"}]," +
+            "\"output\":{\"name\":\"action\",\"layout\":[\"forward\",\"turn\"]}}",
             typeof(InvalidDataException)),
     };
 

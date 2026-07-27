@@ -306,14 +306,14 @@ namespace EmbodiedLab.Contracts
         [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
         public ArtifactFormat Format { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("input", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public ModelInput Input { get; set; }
+        [Newtonsoft.Json.JsonProperty("inputs", Required = Newtonsoft.Json.Required.Always)]
+        public System.Collections.Generic.ICollection<ModelInput> Inputs { get; set; } = new System.Collections.ObjectModel.Collection<ModelInput>();
 
-        [Newtonsoft.Json.JsonProperty("opset_version", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public int? OpsetVersion { get; set; }
+        [Newtonsoft.Json.JsonProperty("opset_version", Required = Newtonsoft.Json.Required.Always)]
+        public int OpsetVersion { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("output", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public ModelOutput Output { get; set; }
+        [Newtonsoft.Json.JsonProperty("output", Required = Newtonsoft.Json.Required.Always)]
+        public ModelOutput Output { get; set; } = new ModelOutput();
 
         [Newtonsoft.Json.JsonProperty("path", Required = Newtonsoft.Json.Required.Always)]
         public string Path { get; set; }
@@ -322,7 +322,7 @@ namespace EmbodiedLab.Contracts
         [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
         public ArtifactStorage Storage { get; set; } = EmbodiedLab.Contracts.ArtifactStorage.Gcs;
 
-        [Newtonsoft.Json.JsonProperty("target", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("target", Required = Newtonsoft.Json.Required.Always)]
         public string Target { get; set; }
 
     }
@@ -686,7 +686,7 @@ namespace EmbodiedLab.Contracts
         public ArtifactLocation Model { get; set; }
 
         [Newtonsoft.Json.JsonProperty("onnx_model", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public ArtifactLocation OnnxModel { get; set; }
+        public ModelArtifactLocation OnnxModel { get; set; }
 
         [Newtonsoft.Json.JsonProperty("replay_bundle", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
         public ArtifactLocation ReplayBundle { get; set; }
