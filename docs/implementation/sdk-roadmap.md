@@ -322,6 +322,8 @@ EnvForge の再移行は第二段階とする。
 - model download は canonical `onnx_model` と `onnx` format の組合せだけを許可
 - Standalone smoke は policy action 成功を必須化
 - Quickstart の最新7件の activity を、背景 panel なしの左上 overlay として severity 色付きで表示
+- Quickstart の既定表示を connect、train、result 利用の3段階に絞り、cloud cancel、
+  local history、artifact path、Replay／inference の診断値は Advanced に残す
 
 ## 完了した SDK スコープ
 

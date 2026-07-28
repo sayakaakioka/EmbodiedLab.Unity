@@ -11,13 +11,18 @@ training flow without depending on EnvForge.
 3. Enter your EmbodiedLab API base URL and result WebSocket base URL.
 4. Enter Play Mode and select **Submit and Train**.
 5. Watch the generated navigation world and the submission status update.
-6. Select a saved record under **Local history (newest first)** to restore its
-   scenario, refresh the result, and resume WebSocket monitoring when active.
-7. Select **Cancel Cloud Job**, verify the read-only cloud target, and confirm
-   the operation to stop an active remote job. Select **Download Model** after
-   training completes. For a completed record, select **Download Replay**,
-   then use **Play Replay** and **Stop Replay**. Select **Run Inference** to run
-   the downloaded model and **Stop Inference** to release it and reset the robot.
+6. After training completes, select **Download Model** and **Run Inference**,
+   or select **Download Replay** and **Play Replay**.
+7. Expand **Show Advanced** for cloud cancellation, local history, artifact
+   paths, replay details, and inference observations. Select a saved record
+   under **Local history (newest first)** to restore its scenario, refresh the
+   result, and resume WebSocket monitoring when active. **Cancel Cloud Job**
+   shows the read-only cloud target and requires explicit confirmation.
+
+The default view keeps the demonstration to three steps: connect, train, and
+try the result. It shows a stop control only while inference or replay is
+running. No operation is automated by this presentation layer; the Advanced
+view retains every existing control and diagnostic value.
 
 The latest seven Quickstart activity messages appear from the Game view's
 upper-left corner as a transparent overlay. Informational messages are light,
