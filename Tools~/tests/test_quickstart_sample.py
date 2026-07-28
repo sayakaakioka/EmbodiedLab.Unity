@@ -209,15 +209,39 @@ class QuickstartSampleTests(unittest.TestCase):
             with self.subTest(control=control):
                 self.assertIn(f'"{control}"', controller)
 
-        manifest_index = controller.index("EmbodiedLabReplay.ReadManifest")
-        selection_index = controller.index(
-            "SelectLatestDeterministicEvaluationChunk", manifest_index
+        download_start = controller.index(
+            "private async Awaitable DownloadReplayAsync()"
         )
-        chunk_index = controller.index("DownloadReplayChunkAsync", selection_index)
-        steps_index = controller.index("EmbodiedLabReplay.ReadSteps", chunk_index)
+        download_end = controller.index(
+            "private void TryLoadPersistedReplay", download_start
+        )
+        download = controller[download_start:download_end]
+        manifest_index = download.index("DownloadReplayBundleAsync")
+        selection_index = download.index("ResolveReplaySelection", manifest_index)
+        chunk_index = download.index("DownloadReplayChunkAsync", selection_index)
+        load_index = download.index("LoadReplayChunk", chunk_index)
         self.assertLess(manifest_index, selection_index)
         self.assertLess(selection_index, chunk_index)
-        self.assertLess(chunk_index, steps_index)
+        self.assertLess(chunk_index, load_index)
+
+        selection_start = controller.index(
+            ") ResolveReplaySelection(",
+            download_end,
+        )
+        selection_end = controller.index(
+            "private void LoadReplayChunk", selection_start
+        )
+        selection = controller[selection_start:selection_end]
+        self.assertIn("EmbodiedLabReplay.ReadManifest", selection)
+        self.assertIn("SelectLatestDeterministicEvaluationChunk", selection)
+
+        load_start = selection_end
+        load_end = controller.index("private void LoadReplay(", load_start)
+        load = controller[load_start:load_end]
+        self.assertIn("EmbodiedLabReplay.ReadSteps", load)
+        self.assertIn("ValidateSelectedChunkSteps", load)
+        self.assertEqual(controller.count("ResolveReplaySelection("), 3)
+        self.assertEqual(controller.count("LoadReplayChunk("), 3)
         self.assertIn("worldBuilder?.RobotTransform", controller)
         self.assertIn("activeRobot.position", player)
         self.assertIn("activeRobot.rotation", player)
