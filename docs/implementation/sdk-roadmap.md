@@ -324,6 +324,10 @@ EnvForge の再移行は第二段階とする。
 - Quickstart の最新7件の activity を、背景 panel なしの左上 overlay として severity 色付きで表示
 - Quickstart の既定表示を connect、train、result 利用の3段階に絞り、cloud cancel、
   local history、artifact path、Replay／inference の診断値は Advanced に残す
+- Quickstart の文字と操作要素を QHD Game View で読みやすい大きさへ拡大し、全体を
+  scroll 可能にする
+- canonical `navigation_default` の `goal.radius` を robot radius と同じ 0.45 m にし、
+  EmbodiedLab training、Unity inference、Unity の goal 表示で同じ到達範囲を使う
 
 ## 完了した SDK スコープ
 

@@ -213,6 +213,16 @@ namespace UnityEngine
             return Clamp(value, 0f, 1f);
         }
 
+        public static float Max(float left, float right)
+        {
+            return Math.Max(left, right);
+        }
+
+        public static float Min(float left, float right)
+        {
+            return Math.Min(left, right);
+        }
+
         public static float Repeat(float value, float length)
         {
             return Clamp(value - (float)Math.Floor(value / length) * length, 0f, length);
@@ -450,7 +460,32 @@ namespace UnityEngine
 
         public int fontSize { get; set; }
 
+        public FontStyle fontStyle { get; set; }
+
+        public float fixedHeight { get; set; }
+
+        public bool wordWrap { get; set; }
+
+        public RectOffset padding { get; set; } = new RectOffset();
+
         public TextClipping clipping { get; set; }
+    }
+
+    public enum FontStyle
+    {
+        Normal,
+        Bold,
+    }
+
+    public sealed class RectOffset
+    {
+        public RectOffset()
+        {
+        }
+
+        public RectOffset(int left, int right, int top, int bottom)
+        {
+        }
     }
 
     public enum TextClipping
@@ -464,6 +499,10 @@ namespace UnityEngine
         public GUIStyle box => new();
 
         public GUIStyle label => new();
+
+        public GUIStyle button => new();
+
+        public GUIStyle textField => new();
     }
 
     public static class GUI
@@ -512,6 +551,13 @@ namespace UnityEngine
         {
         }
 
+        public static void Label(
+            string text,
+            GUIStyle style,
+            params GUILayoutOption[] options)
+        {
+        }
+
         public static void Space(float pixels)
         {
         }
@@ -523,8 +569,24 @@ namespace UnityEngine
             return text;
         }
 
+        public static string TextField(
+            string text,
+            GUIStyle style,
+            params GUILayoutOption[] options)
+        {
+            return text;
+        }
+
         public static bool Button(
             string text,
+            params GUILayoutOption[] options)
+        {
+            return false;
+        }
+
+        public static bool Button(
+            string text,
+            GUIStyle style,
             params GUILayoutOption[] options)
         {
             return false;
@@ -546,6 +608,13 @@ namespace UnityEngine
         public static bool isPlaying => false;
 
         public static string persistentDataPath => string.Empty;
+    }
+
+    public static class Screen
+    {
+        public static int width => 2560;
+
+        public static int height => 1440;
     }
 
     public static class Time

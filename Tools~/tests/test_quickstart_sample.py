@@ -136,11 +136,28 @@ class QuickstartSampleTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn("logOverlay?.Draw(12f, 12f, 760f)", controller)
+        self.assertIn(
+            "logOverlay?.Draw(PanelLeft, 20f, PanelMaximumWidth)",
+            controller,
+        )
         self.assertIn("MaximumEntries = 7", overlay)
         self.assertIn("GUI.Label", overlay)
         self.assertNotIn("GUI.Box", overlay)
         self.assertNotIn("GUI.DrawTexture", overlay)
+
+    def test_sample_ui_is_large_and_scrollable(self) -> None:
+        controller = (SAMPLE_DIRECTORY / "QuickstartController.cs").read_text(
+            encoding="utf-8"
+        )
+        overlay = (SAMPLE_DIRECTORY / "QuickstartLogOverlay.cs").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("BodyFontSize = 30", controller)
+        self.assertIn("TitleFontSize = 44", controller)
+        self.assertIn("GUILayout.BeginScrollView(panelScrollPosition)", controller)
+        self.assertIn("GUILayout.EndScrollView();", controller)
+        self.assertIn("FontSize = 28", overlay)
 
     def test_standalone_smoke_requires_a_successful_action(self) -> None:
         smoke = (
@@ -269,6 +286,9 @@ class QuickstartSampleTests(unittest.TestCase):
         self.assertIn("ImageWidth = 112", contract)
         self.assertIn("ForwardMetersPerDecision = 0.2f", runner)
         self.assertIn("TurnDegreesPerDecision = 15f", runner)
+        self.assertIn("resetRobot && robot != null", runner)
+        self.assertIn("inferenceRunner?.DisposeWithoutReset()", controller)
+        self.assertIn("internal void DisposeWithoutReset()", runner)
         self.assertNotIn(
             "Sentis", "\n".join(path.name for path in SAMPLE_DIRECTORY.iterdir())
         )
@@ -378,6 +398,11 @@ class QuickstartSampleTests(unittest.TestCase):
         )
 
         self.assertEqual(sample_scenario, canonical_scenario)
+        self.assertEqual(sample_scenario["world"]["goal"]["radius"], 0.45)
+        self.assertEqual(
+            sample_scenario["world"]["goal"]["radius"],
+            sample_scenario["robot"]["radius"],
+        )
 
 
 if __name__ == "__main__":

@@ -14,6 +14,17 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
     [DisallowMultipleComponent]
     public sealed class QuickstartController : MonoBehaviour
     {
+        private const int TitleFontSize = 44;
+        private const int SectionFontSize = 36;
+        private const int BodyFontSize = 30;
+        private const float PanelLeft = 40f;
+        private const float PanelTop = 300f;
+        private const float PanelMaximumWidth = 1040f;
+        private const float PanelBottomMargin = 40f;
+        private const float FieldLabelWidth = 300f;
+        private const float ButtonHeight = 60f;
+        private const float TextFieldHeight = 56f;
+
         [SerializeField]
         private string apiBaseUrl = "https://api.example.com/";
 
@@ -33,7 +44,14 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private QuickstartLogOverlay? logOverlay;
         private QuickstartHistoryRecord? selectedHistoryRecord;
         private EmbodiedLabJob? job;
+        private Vector2 panelScrollPosition;
         private Vector2 historyScrollPosition;
+        private GUIStyle panelStyle = null!;
+        private GUIStyle titleStyle = null!;
+        private GUIStyle sectionStyle = null!;
+        private GUIStyle bodyStyle = null!;
+        private GUIStyle buttonStyle = null!;
+        private GUIStyle textFieldStyle = null!;
         private bool destroyed;
         private bool submissionRequestRunning;
         private bool monitorRunning;
@@ -79,13 +97,22 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         {
             RetryDirtyHistory();
             logOverlay?.Add(activityText);
-            GUILayout.BeginArea(new Rect(20, 170, 760, 750), GUI.skin.box);
-            GUILayout.Label("EmbodiedLab Quickstart");
+            EnsureGuiStyles();
+            float panelWidth = Mathf.Min(PanelMaximumWidth, Screen.width - (PanelLeft * 2f));
+            float panelHeight = Mathf.Max(
+                360f,
+                Screen.height - PanelTop - PanelBottomMargin);
+            GUILayout.BeginArea(
+                new Rect(PanelLeft, PanelTop, panelWidth, panelHeight),
+                panelStyle);
+            panelScrollPosition = GUILayout.BeginScrollView(panelScrollPosition);
+            GUILayout.Label("EmbodiedLab Quickstart", titleStyle);
             GUILayout.Label(
-                "Submit a fixed scenario, wait for training, then try the result.");
-            GUILayout.Space(8);
+                "Submit a fixed scenario, wait for training, then try the result.",
+                bodyStyle);
+            GUILayout.Space(16);
 
-            GUILayout.Label("1. Connect");
+            GUILayout.Label("1. Connect", sectionStyle);
             DrawTextField("API base URL", ref apiBaseUrl);
             DrawTextField("Result WebSocket URL", ref resultWebSocketBaseUrl);
 
@@ -93,23 +120,24 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 UsesExampleEndpoint(resultWebSocketBaseUrl))
             {
                 GUILayout.Label(
-                    "Replace both example endpoints with your EmbodiedLab deployment.");
+                    "Replace both example endpoints with your EmbodiedLab deployment.",
+                    bodyStyle);
             }
 
             if (scenarioJson == null)
             {
-                GUILayout.Label("The fixed scenario asset is not assigned.");
+                GUILayout.Label("The fixed scenario asset is not assigned.", bodyStyle);
             }
 
-            GUILayout.Space(8);
-            GUILayout.Label("2. Train");
+            GUILayout.Space(16);
+            GUILayout.Label("2. Train", sectionStyle);
             DrawButton("Submit and Train", CanSubmit(), StartSubmission);
             DrawValue("Job status", jobStatusText);
             DrawValue("Progress", progressText);
             DrawValue("Activity", activityText);
 
-            GUILayout.Space(8);
-            GUILayout.Label("3. Try the result");
+            GUILayout.Space(16);
+            GUILayout.Label("3. Try the result", sectionStyle);
             DrawButton("Download Model", CanDownloadModel(), StartModelDownload);
             DrawButton("Run Inference", CanRunInference(), StartInference);
             if (CanStopInference())
@@ -125,7 +153,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 DrawButton("Stop Replay", true, StopReplayPlayback);
             }
 
-            GUILayout.Space(12);
+            GUILayout.Space(20);
             string advancedLabel = showAdvanced
                 ? "Hide Advanced"
                 : "Show Advanced";
@@ -135,12 +163,14 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 DrawAdvanced();
             }
 
-            GUILayout.Space(8);
+            GUILayout.Space(16);
             GUILayout.Label(
                 "Local cancellation stops this sample only. Use Cancel Cloud Job " +
-                "to stop the remote training job.");
+                "to stop the remote training job.",
+                bodyStyle);
+            GUILayout.EndScrollView();
             GUILayout.EndArea();
-            logOverlay?.Draw(12f, 12f, 760f);
+            logOverlay?.Draw(PanelLeft, 20f, PanelMaximumWidth);
         }
 
         private void Update()
@@ -159,7 +189,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
             lifetimeCancellation?.Cancel();
             StopCurrentJob();
-            inferenceRunner?.Dispose();
+            inferenceRunner?.DisposeWithoutReset();
             inferenceRunner = null;
             modeCoordinator = null;
             logOverlay = null;
@@ -171,19 +201,60 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             lifetimeCancellation = null;
         }
 
-        private static void DrawTextField(string label, ref string value)
+        private void EnsureGuiStyles()
+        {
+            if (panelStyle != null)
+            {
+                return;
+            }
+
+            panelStyle = new GUIStyle(GUI.skin.box)
+            {
+                padding = new RectOffset(24, 24, 24, 24),
+            };
+            titleStyle = CreateLabelStyle(TitleFontSize, FontStyle.Bold);
+            sectionStyle = CreateLabelStyle(SectionFontSize, FontStyle.Bold);
+            bodyStyle = CreateLabelStyle(BodyFontSize, FontStyle.Normal);
+            buttonStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontSize = BodyFontSize,
+                fontStyle = FontStyle.Bold,
+                fixedHeight = ButtonHeight,
+                wordWrap = true,
+            };
+            textFieldStyle = new GUIStyle(GUI.skin.textField)
+            {
+                fontSize = BodyFontSize,
+                fixedHeight = TextFieldHeight,
+            };
+        }
+
+        private static GUIStyle CreateLabelStyle(int fontSize, FontStyle fontStyle)
+        {
+            return new GUIStyle(GUI.skin.label)
+            {
+                fontSize = fontSize,
+                fontStyle = fontStyle,
+                wordWrap = true,
+            };
+        }
+
+        private void DrawTextField(string label, ref string value)
         {
             GUILayout.BeginHorizontal();
-            GUILayout.Label(label, GUILayout.Width(180));
-            value = GUILayout.TextField(value);
+            GUILayout.Label(label, bodyStyle, GUILayout.Width(FieldLabelWidth));
+            value = GUILayout.TextField(
+                value,
+                textFieldStyle,
+                GUILayout.Height(TextFieldHeight));
             GUILayout.EndHorizontal();
         }
 
-        private static void DrawButton(string label, bool enabled, Action action)
+        private void DrawButton(string label, bool enabled, Action action)
         {
             bool previousEnabled = GUI.enabled;
             GUI.enabled = previousEnabled && enabled;
-            if (GUILayout.Button(label))
+            if (GUILayout.Button(label, buttonStyle, GUILayout.Height(ButtonHeight)))
             {
                 action();
             }
@@ -191,24 +262,24 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             GUI.enabled = previousEnabled;
         }
 
-        private static void DrawValue(string label, string value)
+        private void DrawValue(string label, string value)
         {
             GUILayout.BeginHorizontal();
-            GUILayout.Label(label, GUILayout.Width(180));
-            GUILayout.Label(value);
+            GUILayout.Label(label, bodyStyle, GUILayout.Width(FieldLabelWidth));
+            GUILayout.Label(value, bodyStyle);
             GUILayout.EndHorizontal();
         }
 
         private void DrawAdvanced()
         {
-            GUILayout.Space(8);
-            GUILayout.Label("Cloud and local controls");
+            GUILayout.Space(16);
+            GUILayout.Label("Cloud and local controls", sectionStyle);
             DrawCloudCancellation();
             DrawButton("Stop Replay and Reset", CanStopReplay(), StopReplayPlayback);
             DrawButton("Stop Inference and Reset", CanStopInference(), StopInference);
 
-            GUILayout.Space(8);
-            GUILayout.Label("Details");
+            GUILayout.Space(16);
+            GUILayout.Label("Details", sectionStyle);
             DrawValue("Submission ID", submissionIdText);
             DrawValue("Active cloud target", activeTargetText);
             DrawValue("Downloaded model", modelPathText);
@@ -223,16 +294,16 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             DrawValue("Action", inferenceRunner?.ActionStatus ?? "-");
             DrawValue("History storage", historyStorageText);
 
-            GUILayout.Space(8);
+            GUILayout.Space(16);
             DrawHistory();
         }
 
         private void DrawHistory()
         {
-            GUILayout.Label("Local history (newest first)");
+            GUILayout.Label("Local history (newest first)", sectionStyle);
             if (historyStore == null || historyStore.Records.Count == 0)
             {
-                GUILayout.Label("No saved jobs.");
+                GUILayout.Label("No saved jobs.", bodyStyle);
                 return;
             }
 
@@ -246,7 +317,10 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                     $"{marker} {record.SubmittedAtUtc} | {record.Status} | {record.SubmissionId}";
                 bool previousEnabled = GUI.enabled;
                 GUI.enabled = previousEnabled && CanSelectHistory();
-                if (GUILayout.Button(label))
+                if (GUILayout.Button(
+                        label,
+                        buttonStyle,
+                        GUILayout.Height(ButtonHeight)))
                 {
                     StartHistorySelection(record.SubmissionId);
                 }
@@ -270,7 +344,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 return;
             }
 
-            GUILayout.Label(GetRemovalWarning(selectedHistoryRecord));
+            GUILayout.Label(GetRemovalWarning(selectedHistoryRecord), bodyStyle);
             DrawButton(
                 "Confirm: Remove Local Record Only",
                 CanChangeHistory(),
@@ -1266,7 +1340,9 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 return;
             }
 
-            GUILayout.Label($"Cloud cancellation target: {activeTargetText}");
+            GUILayout.Label(
+                $"Cloud cancellation target: {activeTargetText}",
+                bodyStyle);
             DrawButton(
                 "Confirm: Cancel Active Cloud Job",
                 CanCancel(),
