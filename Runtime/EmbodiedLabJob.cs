@@ -4,9 +4,9 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 using EmbodiedLab.Contracts;
 using EmbodiedLab.Unity.Internal;
-using UnityEngine;
 
 namespace EmbodiedLab.Unity
 {
@@ -64,7 +64,7 @@ namespace EmbodiedLab.Unity
             }
         }
 
-        public static async Awaitable<EmbodiedLabJob> SubmitAsync(
+        public static async Task<EmbodiedLabJob> SubmitAsync(
             EmbodiedLabEndpoints endpoints,
             ScenarioBundle scenario,
             CancellationToken cancellationToken = default)
@@ -98,7 +98,7 @@ namespace EmbodiedLab.Unity
             }
         }
 
-        internal static async Awaitable<EmbodiedLabJob> SubmitAsync(
+        internal static async Task<EmbodiedLabJob> SubmitAsync(
             EmbodiedLabTransport transport,
             ScenarioBundle scenario,
             SynchronizationContext? synchronizationContext,
@@ -178,7 +178,7 @@ namespace EmbodiedLab.Unity
             }
         }
 
-        public async Awaitable<ResultDocument> WaitForCompletionAsync(
+        public async Task<ResultDocument> WaitForCompletionAsync(
             CancellationToken cancellationToken = default)
         {
             CancellationTokenSource operationCancellation;
@@ -225,7 +225,7 @@ namespace EmbodiedLab.Unity
             }
         }
 
-        public async Awaitable<ResultDocument> RefreshAsync(
+        public async Task<ResultDocument> RefreshAsync(
             CancellationToken cancellationToken = default)
         {
             using CancellationTokenSource operationCancellation =
@@ -236,7 +236,7 @@ namespace EmbodiedLab.Unity
             return PublishResult(result);
         }
 
-        public async Awaitable<ResultDocument> CancelAsync(
+        public async Task<ResultDocument> CancelAsync(
             CancellationToken cancellationToken = default)
         {
             string cancelToken = CancelToken ?? throw new InvalidOperationException(
@@ -250,7 +250,7 @@ namespace EmbodiedLab.Unity
             return PublishResult(result);
         }
 
-        public async Awaitable DownloadReplayBundleAsync(
+        public async Task DownloadReplayBundleAsync(
             string destinationPath,
             CancellationToken cancellationToken = default)
         {
@@ -265,7 +265,7 @@ namespace EmbodiedLab.Unity
                 operationCancellation.Token);
         }
 
-        public async Awaitable DownloadReplayChunkAsync(
+        public async Task DownloadReplayChunkAsync(
             ReplayBundleChunk chunk,
             string destinationPath,
             CancellationToken cancellationToken = default)
@@ -289,7 +289,7 @@ namespace EmbodiedLab.Unity
                 operationCancellation.Token);
         }
 
-        public async Awaitable DownloadModelAsync(
+        public async Task DownloadModelAsync(
             string destinationPath,
             CancellationToken cancellationToken = default)
         {

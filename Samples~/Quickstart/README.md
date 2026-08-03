@@ -1,114 +1,179 @@
-# EmbodiedLab Quickstart
+# EmbodiedLab Tutorial
 
-This sample demonstrates the smallest supported fixed-environment cloud
-training flow without depending on EnvForge.
+This tutorial builds one fixed-environment EmbodiedLab workflow in six small
+steps. Each step points to the file that owns that responsibility. The final
+scene can submit and monitor a cloud job, download its artifacts, play its
+deterministic evaluation replay, and run its ONNX policy on Windows x64.
 
-## Run the sample
+The tutorial does not implement a general job history, credential store, or
+editor workflow. Those application concerns belong in a frontend such as
+EnvForge.
 
-1. Import **Quickstart** from the EmbodiedLab Unity SDK package's **Samples**
-   tab.
+## Import and open the tutorial
+
+1. Import **Tutorial** from the EmbodiedLab Unity SDK package's **Samples** tab.
 2. Open `Quickstart.unity`.
-3. Enter your EmbodiedLab API base URL and result WebSocket base URL.
-4. Enter Play Mode and select **Submit and Train**.
-5. Watch the generated navigation world and the submission status update.
-6. After training completes, select **Download Model** and **Run Inference**,
-   or select **Download Replay** and **Play Replay**.
-7. Expand **Show Advanced** for cloud cancellation, local history, artifact
-   paths, replay details, and inference observations. Select a saved record
-   under **Local history (newest first)** to restore its scenario, refresh the
-   result, and resume WebSocket monitoring when active. **Cancel Cloud Job**
-   shows the read-only cloud target and requires explicit confirmation.
+3. Enter Play Mode.
 
-The default view keeps the demonstration to three steps: connect, train, and
-try the result. It shows a stop control only while inference or replay is
-running. No operation is automated by this presentation layer; the Advanced
-view retains every existing control and diagnostic value.
+The scene contains one `QuickstartController`. Its presentation is in
+`QuickstartController.View.cs`; its lifecycle composition is in
+`QuickstartController.cs`. Read the following sections in order before reading
+those two files end to end.
 
-The latest seven Quickstart activity messages appear from the Game view's
-upper-left corner as a transparent overlay. Informational messages are light,
-warnings are yellow, and errors are red; a small text shadow preserves
-readability without adding an opaque background panel.
+## 1. Load the fixed scenario
 
-The model is saved to:
+Start with `NavigationScenario.json`. It is the exact `ScenarioBundle` sent to
+EmbodiedLab and the source for the visible floor, walls, obstacles, robot,
+goal, semantic camera, overview camera, and light.
 
-    <Application.persistentDataPath>/EmbodiedLabQuickstart/<submission-id>/policy.onnx
+`QuickstartWorldBuilder.cs` shows how a frontend can turn that contract into a
+Unity world. It does not define a second environment format.
 
-The replay manifest and selected chunk are saved under the same submission
-directory. **Download Replay** downloads the manifest first, selects the latest
-chunk whose phase is `eval` and policy mode is `deterministic`, then downloads
-only that chunk and reads its steps. The selected manifest and chunk paths are
-persisted in local history and loaded again when the completed record is
-restored.
+The scene loads the contract with the public SDK helper:
 
-Playback applies authoritative replay X/Z position and yaw to the same robot
-used by the visible world. The clock follows each step's `time_seconds` and
-interpolates only between consecutive steps in the same episode. Episode
-boundaries have a short pause. **Stop Replay**, history selection, world
-rebuild, and leaving Play Mode stop playback; **Stop Replay** resets the robot
-to the first loaded step.
+```csharp
+ScenarioBundle scenario = ScenarioBundleJson.Deserialize(scenarioJson.text);
+```
 
-## Run the downloaded policy
+The robot radius and goal radius are both 0.45 meters. The training contract,
+goal display, and local inference therefore use the same reach condition.
 
-The inference flow is deliberately direct and sample-local:
+## 2. Connect to EmbodiedLab
 
-1. **Download Model** stores the completed job's canonical `policy.onnx`.
-2. **Run Inference** stops replay and resets the shared robot to the exact start
-   pose in the submitted scenario.
-3. One cached ONNX Runtime 1.24.4 CPU session loads that file.
-4. Every 0.1 seconds, the robot's submitted `ForwardCameraSensor` renders a
-   112x84 semantic image. Traversable space is green; blocked geometry and the
-   background are blue; the robot and goal are hidden. The readback is flipped
-   vertically and normalized into channel-first `obs_0` values.
-5. `obs_1` contains signed relative goal angle in `[-180, 180]` degrees and
-   straight-line goal distance in meters.
-6. Output index 0 is clamped to forward `[0, 1]`, and index 1 is clamped to turn
-   `[-1, 1]`. Any clamp remains visible as a contract violation.
-7. Each decision applies at most 0.2 meters forward and 15 degrees of turn.
+Replace both example endpoints in the Game view:
 
-The model must expose exactly float `obs_0` (`3x84x112`, with an optional batch)
-and float `obs_1` (two values, with an optional batch), plus a float output with
-at least two actions. Incompatible metadata, malformed values, native runtime
-failures, missing graphics, wall collision, and goal reach stop inference with
-an explicit status. **Stop Inference**, history selection, world rebuild, and
-leaving Play Mode dispose the session and camera resources and reset the robot
-to the submitted start pose.
+- **API base URL**: the HTTPS base URL for the EmbodiedLab API.
+- **Result WebSocket URL**: the WSS base URL for result updates.
 
-Replay and inference always use the same visible world and robot and cannot run
-simultaneously. This package includes the CPU ONNX Runtime binaries needed for
-Unity 6000.3 on Windows x64 Editor and Standalone. That is the only initially
-verified target; no Sentis or model-format fallback is present.
+`EmbodiedLabEndpoints` validates and normalizes these values. Non-loopback
+deployments must use HTTPS and WSS.
 
-`NavigationScenario.json` is both the exact fixed scenario submitted by this
-sample and the source for its visible floor, walls, obstacles, robot start,
-goal, forward semantic camera, overview camera, and light. Edit that contract
-JSON to try another fixed map.
+```csharp
+var endpoints = new EmbodiedLabEndpoints(apiBaseUrl, resultWebSocketBaseUrl);
+```
 
-The sample stores resumable job records newest-first at:
+## 3. Submit and monitor a job
 
-    <Application.persistentDataPath>/EmbodiedLabQuickstart/job-history.json
+Select **Submit and Train**. `QuickstartCloudJob.cs` contains only this cloud
+job lifecycle:
 
-Each record keeps the submitted scenario, endpoints, latest status and
-progress, local artifact paths, and the cancellation capability while the job
-is active. Treat this file as secret-bearing local data. Terminal records no
-longer retain the cancellation capability.
+```csharp
+EmbodiedLabJob job = await EmbodiedLabJob.SubmitAsync(
+    endpoints,
+    scenario,
+    cancellationToken);
 
-**Remove Local Record** uses an explicit second confirmation. It removes only
-the history entry; it never cancels or deletes the cloud job and never deletes
-downloaded files. Removing an active record also permanently removes this
-sample's saved cancellation capability, so the confirmation names that risk
-and the exact cloud target.
+job.ResultUpdated += HandleResultUpdated;
+ResultDocument completed = await job.WaitForCompletionAsync(cancellationToken);
+```
 
-World rendering and local history persistence are isolated from the active job
-handle. If either local operation fails after submission, the sample keeps the
-job attached so status monitoring and cloud cancellation remain available. A
-complete temporary history file left by an interrupted atomic save is promoted
-the next time the sample loads; a malformed temporary file is discarded.
-Transient save failures remain dirty and retry while the sample stays open,
-and a submission that completes during Play Mode shutdown gets one final
-best-effort history save before its local handle is disposed.
+The SDK uses WebSocket updates while the stream is healthy and performs HTTP
+result reconciliation only after connection failure, disconnect, silence, or
+an explicit refresh.
 
-Replace the `example.com` endpoints before submitting. Running training in your
-cloud deployment may incur costs.
+While a trainer is starting, a valid queued result can contain
+`current_step = 0` and `total_steps = 0`. The tutorial displays this as
+**Waiting for the trainer to start** instead of the ambiguous `0/0`. Numeric
+progress appears after a total step count is available. The formatting rule is
+isolated in `QuickstartProgressText.cs`.
 
-Closing the scene or leaving Play Mode cancels local monitoring only. It does
-not cancel the cloud job; use **Cancel Cloud Job** for that operation.
+### Optional: cancel the cloud job
+
+**Cancel Cloud Job** requires a second confirmation. It calls `CancelAsync` on
+the active job. A .NET `CancellationToken` stops only the local wait; it never
+cancels cloud training.
+
+```csharp
+ResultDocument cancelling = await job.CancelAsync(cancellationToken);
+```
+
+### Optional: restore in an application
+
+The SDK can restore a known job, but this tutorial deliberately does not store
+credentials or build a history UI:
+
+```csharp
+EmbodiedLabJob restored = EmbodiedLabJob.Restore(
+    endpoints,
+    submissionId,
+    cancelToken);
+```
+
+Store the submission ID, endpoint values, exact scenario, and optional cancel
+capability according to the security and persistence requirements of the
+application that embeds the SDK.
+
+## 4. Download the result
+
+After the job reaches `Completed`, use **Download Model** and **Download
+Replay**. `QuickstartArtifacts.cs` keeps artifact selection and download
+separate from the cloud lifecycle and the UI.
+
+The model call downloads only the canonical ONNX artifact:
+
+```csharp
+await job.DownloadModelAsync(modelPath, cancellationToken);
+```
+
+The replay flow is deliberately explicit:
+
+1. Refresh the completed result.
+2. Download the Replay manifest.
+3. Select the latest `eval` + `deterministic` chunk.
+4. Download that chunk.
+5. Read and validate its steps.
+
+```csharp
+await job.DownloadReplayBundleAsync(manifestPath, cancellationToken);
+ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(manifestPath);
+await job.DownloadReplayChunkAsync(chunk, chunkPath, cancellationToken);
+IReadOnlyList<ReplayLogStep> steps = EmbodiedLabReplay.ReadSteps(chunkPath);
+```
+
+Artifacts are stored under:
+
+    <Application.persistentDataPath>/EmbodiedLabQuickstart/<submission-id>/
+
+Local paths reject rooted, traversing, or otherwise unsafe submission and
+chunk paths. The SDK also enforces fixed artifact and replay resource limits.
+
+## 5. Play the replay
+
+Select **Play Replay**. `QuickstartReplayTimeline.cs` validates and advances
+the replay clock, while `QuickstartReplayPlayer.cs` applies the resulting X/Z
+position and yaw to the same visible robot.
+
+Playback follows each step's `time_seconds`, interpolates only consecutive
+steps in the same episode, pauses briefly at episode boundaries, and resets to
+the first step when stopped.
+
+## 6. Run the policy on Windows x64
+
+Select **Run Inference** after downloading the model. The package includes ONNX
+Runtime 1.24.4 CPU binaries verified with Unity 2022.3.19f1 and 6000.3.11f1 on
+Windows x64 Editor and Standalone. Other operating systems remain unsupported.
+
+Read the inference files in this order:
+
+1. `QuickstartOnnxContract.cs` validates `obs_0`, `obs_1`, and action metadata.
+2. `QuickstartSemanticCamera.cs` captures the submitted semantic camera.
+3. `QuickstartInferenceMath.cs` creates observations and clamps actions.
+4. `QuickstartOnnxPolicy.cs` owns one cached ONNX session.
+5. `QuickstartInferenceRunner.cs` applies decisions to the shared robot.
+
+Replay and inference are mutually exclusive. Starting one stops the other, and
+stopping either resets the robot deterministically.
+
+## What to read next
+
+After completing the tutorial, continue with the SDK rather than adding more
+sample-local infrastructure:
+
+1. `Runtime/EmbodiedLabJob.cs`
+2. `Runtime/EmbodiedLabEndpoints.cs`
+3. `Runtime/EmbodiedLabReplay.cs`
+4. `Runtime/Transport/EmbodiedLabTransport.cs`
+
+Running training against a cloud deployment may incur costs. Leaving Play Mode
+stops this tutorial's local monitoring and releases local resources; it does
+not cancel the cloud job.

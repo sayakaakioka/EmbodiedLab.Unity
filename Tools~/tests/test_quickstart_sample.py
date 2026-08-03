@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import re
 import unittest
-
+from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SAMPLE_DIRECTORY = REPOSITORY_ROOT / "Samples~" / "Quickstart"
@@ -22,7 +21,7 @@ def read_guid(path: Path) -> str:
 
 
 class QuickstartSampleTests(unittest.TestCase):
-    def test_package_registers_importable_sample(self) -> None:
+    def test_package_registers_tutorial(self) -> None:
         package = json.loads(
             (REPOSITORY_ROOT / "package.json").read_text(encoding="utf-8")
         )
@@ -31,10 +30,10 @@ class QuickstartSampleTests(unittest.TestCase):
             package["samples"],
             [
                 {
-                    "displayName": "Quickstart",
+                    "displayName": "Tutorial",
                     "description": (
-                        "Submit, monitor, cancel, download, replay, and run ONNX "
-                        "inference for a fixed-environment EmbodiedLab job."
+                        "Learn the fixed-environment EmbodiedLab workflow in six small "
+                        "steps, from scenario loading to replay and ONNX inference."
                     ),
                     "path": "Samples~/Quickstart",
                 }
@@ -50,10 +49,7 @@ class QuickstartSampleTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         )
 
-        self.assertEqual(
-            assembly["name"],
-            "EmbodiedLab.Unity.Samples.Quickstart",
-        )
+        self.assertEqual(assembly["name"], "EmbodiedLab.Unity.Samples.Quickstart")
         self.assertEqual(assembly["references"], ["EmbodiedLab.Unity"])
 
     def test_scene_references_controller_and_fixed_scenario(self) -> None:
@@ -70,45 +66,41 @@ class QuickstartSampleTests(unittest.TestCase):
             scene,
         )
         self.assertIn(
-            "m_EditorClassIdentifier: "
             "EmbodiedLab.Unity.Samples.Quickstart::"
             "EmbodiedLab.Unity.Samples.Quickstart.QuickstartController",
             scene,
         )
 
-    def test_controller_exercises_supported_job_flow(self) -> None:
-        controller = (SAMPLE_DIRECTORY / "QuickstartController.cs").read_text(
-            encoding="utf-8"
+    def test_tutorial_has_six_ordered_small_steps(self) -> None:
+        readme = (SAMPLE_DIRECTORY / "README.md").read_text(encoding="utf-8")
+        headings = (
+            "## 1. Load the fixed scenario",
+            "## 2. Connect to EmbodiedLab",
+            "## 3. Submit and monitor a job",
+            "## 4. Download the result",
+            "## 5. Play the replay",
+            "## 6. Run the policy on Windows x64",
         )
 
-        for required_call in (
-            "ScenarioBundleJson.Deserialize",
-            "EmbodiedLabJob.SubmitAsync",
-            "EmbodiedLabJob.Restore",
-            "RefreshAsync",
-            "WaitForCompletionAsync",
-            "CancelAsync",
-            "DownloadModelAsync",
-            "DownloadReplayBundleAsync",
-            "EmbodiedLabReplay.ReadManifest",
-            "DownloadReplayChunkAsync",
-            "EmbodiedLabReplay.ReadSteps",
-        ):
-            with self.subTest(required_call=required_call):
-                self.assertIn(required_call, controller)
+        positions = [readme.index(heading) for heading in headings]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("QuickstartCloudJob.cs", readme)
+        self.assertIn("QuickstartArtifacts.cs", readme)
+        self.assertIn("QuickstartProgressText.cs", readme)
+        self.assertIn("EmbodiedLabJob.Restore", readme)
 
-    def test_sample_splits_history_and_world_responsibilities(self) -> None:
+    def test_tutorial_splits_real_responsibilities(self) -> None:
         expected_files = (
             "QuickstartController.cs",
-            "QuickstartHistoryRecord.cs",
-            "QuickstartHistoryStore.cs",
-            "QuickstartLogOverlay.cs",
+            "QuickstartController.View.cs",
+            "QuickstartCloudJob.cs",
+            "QuickstartArtifacts.cs",
+            "QuickstartProgressText.cs",
             "QuickstartWorldBuilder.cs",
             "QuickstartReplayPlayer.cs",
             "QuickstartReplayTimeline.cs",
             "QuickstartInferenceMath.cs",
             "QuickstartInferenceRunner.cs",
-            "QuickstartModeCoordinator.cs",
             "QuickstartOnnxContract.cs",
             "QuickstartOnnxPolicy.cs",
             "QuickstartSemanticCamera.cs",
@@ -120,204 +112,73 @@ class QuickstartSampleTests(unittest.TestCase):
                 self.assertTrue(path.is_file())
                 self.assertTrue(path.with_suffix(path.suffix + ".meta").is_file())
 
-        controller = (SAMPLE_DIRECTORY / "QuickstartController.cs").read_text(
-            encoding="utf-8"
+        removed_files = (
+            "QuickstartHistoryRecord.cs",
+            "QuickstartHistoryStore.cs",
+            "QuickstartLogOverlay.cs",
+            "QuickstartModeCoordinator.cs",
         )
-        self.assertIn('"job-history.json"', controller)
-        self.assertIn("Application.persistentDataPath", controller)
-        self.assertIn("Local history (newest first)", controller)
-        self.assertIn("QuickstartLocalPaths.GetModelPath", controller)
+        for filename in removed_files:
+            with self.subTest(removed_filename=filename):
+                self.assertFalse((SAMPLE_DIRECTORY / filename).exists())
 
-    def test_status_log_is_a_transparent_top_left_overlay(self) -> None:
-        controller = (SAMPLE_DIRECTORY / "QuickstartController.cs").read_text(
+    def test_job_and_artifact_files_use_supported_sdk_flow(self) -> None:
+        cloud_job = (SAMPLE_DIRECTORY / "QuickstartCloudJob.cs").read_text(
             encoding="utf-8"
         )
-        overlay = (SAMPLE_DIRECTORY / "QuickstartLogOverlay.cs").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn(
-            "logOverlay?.Draw(PanelLeft, 20f, PanelMaximumWidth)",
-            controller,
-        )
-        self.assertIn("MaximumEntries = 7", overlay)
-        self.assertIn("GUI.Label", overlay)
-        self.assertNotIn("GUI.Box", overlay)
-        self.assertNotIn("GUI.DrawTexture", overlay)
-
-    def test_sample_ui_is_large_and_scrollable(self) -> None:
-        controller = (SAMPLE_DIRECTORY / "QuickstartController.cs").read_text(
-            encoding="utf-8"
-        )
-        overlay = (SAMPLE_DIRECTORY / "QuickstartLogOverlay.cs").read_text(
+        artifacts = (SAMPLE_DIRECTORY / "QuickstartArtifacts.cs").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn("BodyFontSize = 30", controller)
-        self.assertIn("TitleFontSize = 44", controller)
-        self.assertIn("GUILayout.BeginScrollView(panelScrollPosition)", controller)
-        self.assertIn("GUILayout.EndScrollView();", controller)
-        self.assertIn("FontSize = 28", overlay)
+        for required_call in (
+            "EmbodiedLabJob.SubmitAsync",
+            "WaitForCompletionAsync",
+            "CancelAsync",
+        ):
+            with self.subTest(cloud_call=required_call):
+                self.assertIn(required_call, cloud_job)
 
-    def test_standalone_smoke_requires_a_successful_action(self) -> None:
-        smoke = (
-            REPOSITORY_ROOT
-            / "Tests~"
-            / "QuickstartStandaloneSmoke"
-            / "QuickstartStandaloneSmoke.cs"
-        ).read_text(encoding="utf-8")
+        for required_call in (
+            "RefreshAsync",
+            "DownloadModelAsync",
+            "DownloadReplayBundleAsync",
+            "EmbodiedLabReplay.ReadManifest",
+            "DownloadReplayChunkAsync",
+            "EmbodiedLabReplay.ReadSteps",
+        ):
+            with self.subTest(artifact_call=required_call):
+                self.assertIn(required_call, artifacts)
 
-        stopped_index = smoke.index("if (!runner.IsRunning)")
-        action_index = smoke.index('runner.ActionStatus.StartsWith("raw f="')
-        successful_finish = re.search(r"Finish\(\s*true,", smoke[action_index:])
-        self.assertLess(stopped_index, action_index)
-        self.assertIsNotNone(successful_finish)
+    def test_removed_operational_ui_does_not_remain(self) -> None:
+        sample_sources = "\n".join(
+            path.read_text(encoding="utf-8") for path in SAMPLE_DIRECTORY.glob("*.cs")
+        )
+        readme = (SAMPLE_DIRECTORY / "README.md").read_text(encoding="utf-8")
 
-    def test_controller_guards_cloud_job_operations(self) -> None:
-        controller = (SAMPLE_DIRECTORY / "QuickstartController.cs").read_text(
+        for removed_text in (
+            "QuickstartHistoryStore",
+            "QuickstartHistoryRecord",
+            "job-history.json",
+            "Show Advanced",
+            "Local history (newest first)",
+            "QuickstartLogOverlay",
+        ):
+            with self.subTest(removed_text=removed_text):
+                self.assertNotIn(removed_text, sample_sources)
+                self.assertNotIn(removed_text, readme)
+
+    def test_tutorial_ui_is_large_scrollable_and_ordered(self) -> None:
+        view = (SAMPLE_DIRECTORY / "QuickstartController.View.cs").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn("submissionRequestRunning = true;", controller)
-        self.assertLess(
-            controller.index("submissionRequestRunning = true;"),
-            controller.index("EmbodiedLabJob.SubmitAsync"),
-        )
-        self.assertIn("!submissionRequestRunning", controller)
-        self.assertIn("!cancelRequestRunning", controller)
-        self.assertIn("ReferenceEquals(job, activeJob)", controller)
-        self.assertIn("Confirm: Cancel Active Cloud Job", controller)
-        self.assertIn("Cloud cancellation target:", controller)
-        self.assertIn("Active cloud target", controller)
-        self.assertIn("restorePhaseCompleted", controller)
-
-        for method_name in ("CanSubmit", "CanDownloadModel", "CanSelectHistory"):
-            method = re.search(
-                rf"private bool {method_name}\(\)\s*\{{(?P<body>.*?)\n        \}}",
-                controller,
-                re.DOTALL,
-            )
-            self.assertIsNotNone(method)
-            body = method.group("body") if method else ""
-            for operation_guard in (
-                "submissionRequestRunning",
-                "restoreRunning",
-                "cancelRequestRunning",
-                "modelDownloadRunning",
-                "replayDownloadRunning",
-            ):
-                with self.subTest(
-                    method_name=method_name, operation_guard=operation_guard
-                ):
-                    self.assertIn(operation_guard, body)
-
-    def test_replay_uses_selected_chunk_and_shared_robot(self) -> None:
-        controller = (SAMPLE_DIRECTORY / "QuickstartController.cs").read_text(
-            encoding="utf-8"
-        )
-        player = (SAMPLE_DIRECTORY / "QuickstartReplayPlayer.cs").read_text(
-            encoding="utf-8"
-        )
-        timeline = (SAMPLE_DIRECTORY / "QuickstartReplayTimeline.cs").read_text(
-            encoding="utf-8"
-        )
-
-        for control in ("Download Replay", "Play Replay", "Stop Replay"):
-            with self.subTest(control=control):
-                self.assertIn(f'"{control}"', controller)
-
-        download_start = controller.index(
-            "private async Awaitable DownloadReplayAsync()"
-        )
-        download_end = controller.index(
-            "private void TryLoadPersistedReplay", download_start
-        )
-        download = controller[download_start:download_end]
-        manifest_index = download.index("DownloadReplayBundleAsync")
-        selection_index = download.index("ResolveReplaySelection", manifest_index)
-        chunk_index = download.index("DownloadReplayChunkAsync", selection_index)
-        load_index = download.index("LoadReplayChunk", chunk_index)
-        self.assertLess(manifest_index, selection_index)
-        self.assertLess(selection_index, chunk_index)
-        self.assertLess(chunk_index, load_index)
-
-        selection_start = controller.index(
-            ") ResolveReplaySelection(",
-            download_end,
-        )
-        selection_end = controller.index(
-            "private void LoadReplayChunk", selection_start
-        )
-        selection = controller[selection_start:selection_end]
-        self.assertIn("EmbodiedLabReplay.ReadManifest", selection)
-        self.assertIn("SelectLatestDeterministicEvaluationChunk", selection)
-
-        load_start = selection_end
-        load_end = controller.index("private void LoadReplay(", load_start)
-        load = controller[load_start:load_end]
-        self.assertIn("EmbodiedLabReplay.ReadSteps", load)
-        self.assertIn("ValidateSelectedChunkSteps", load)
-        self.assertEqual(controller.count("ResolveReplaySelection("), 3)
-        self.assertEqual(controller.count("LoadReplayChunk("), 3)
-        self.assertIn("worldBuilder?.RobotTransform", controller)
-        self.assertIn("activeRobot.position", player)
-        self.assertIn("activeRobot.rotation", player)
-        self.assertIn("EpisodePauseSeconds", timeline)
-        self.assertIn("TimeSeconds", timeline)
-
-    def test_inference_uses_shared_world_and_exact_contract(self) -> None:
-        controller = (SAMPLE_DIRECTORY / "QuickstartController.cs").read_text(
-            encoding="utf-8"
-        )
-        contract = (SAMPLE_DIRECTORY / "QuickstartOnnxContract.cs").read_text(
-            encoding="utf-8"
-        )
-        runner = (SAMPLE_DIRECTORY / "QuickstartInferenceRunner.cs").read_text(
-            encoding="utf-8"
-        )
-
-        for control in ("Run Inference", "Stop Inference"):
-            self.assertIn(f'"{control}"', controller)
-        self.assertIn("new QuickstartInferenceRunner(activeWorld)", controller)
-        self.assertIn("modeCoordinator?.EnterInference()", controller)
-        self.assertIn('ImageInputName = "obs_0"', contract)
-        self.assertIn('NumericInputName = "obs_1"', contract)
-        self.assertIn("ImageHeight = 84", contract)
-        self.assertIn("ImageWidth = 112", contract)
-        self.assertIn("ForwardMetersPerDecision = 0.2f", runner)
-        self.assertIn("TurnDegreesPerDecision = 15f", runner)
-        self.assertIn("resetRobot && robot != null", runner)
-        self.assertIn("inferenceRunner?.DisposeWithoutReset()", controller)
-        self.assertIn("internal void DisposeWithoutReset()", runner)
-        self.assertNotIn(
-            "Sentis", "\n".join(path.name for path in SAMPLE_DIRECTORY.iterdir())
-        )
-
-    def test_local_failures_do_not_discard_submitted_job(self) -> None:
-        controller = (SAMPLE_DIRECTORY / "QuickstartController.cs").read_text(
-            encoding="utf-8"
-        )
-
-        attach_index = controller.index("AttachJob(submittedJob)")
-        persistence_index = controller.index("TryPersistHistoryRecord(record)")
-        world_index = controller.index("TryBuildWorld(scenario)")
-        self.assertLess(attach_index, persistence_index)
-        self.assertLess(attach_index, world_index)
-        self.assertIn("cloud monitoring remains active", controller)
-        self.assertIn(
-            "Keep this scene open to retain the active job handle", controller
-        )
-        self.assertIn("selectedHistoryRecordDirty", controller)
-        self.assertIn("RetryDirtyHistory();", controller)
-        self.assertIn("changed || selectedHistoryRecordDirty", controller)
-
-        record_index = controller.index("var record = new QuickstartHistoryRecord")
-        destroyed_index = controller.index("if (destroyed)", record_index)
-        detached_save_index = controller.index(
-            "TryPersistDetachedHistoryRecord(record)", destroyed_index
-        )
-        self.assertLess(record_index, destroyed_index)
-        self.assertLess(destroyed_index, detached_save_index)
+        self.assertIn("BodyFontSize = 30", view)
+        self.assertIn("TitleFontSize = 44", view)
+        self.assertIn("GUILayout.BeginScrollView(panelScrollPosition)", view)
+        self.assertIn("GUILayout.EndScrollView();", view)
+        labels = tuple(f'GUILayout.Label("{step}.' for step in range(1, 7))
+        positions = [view.index(label) for label in labels]
+        self.assertEqual(positions, sorted(positions))
 
     def test_canonical_scenario_drives_visible_world(self) -> None:
         builder = (SAMPLE_DIRECTORY / "QuickstartWorldBuilder.cs").read_text(
@@ -335,37 +196,45 @@ class QuickstartSampleTests(unittest.TestCase):
             with self.subTest(contract_member=contract_member):
                 self.assertIn(contract_member, builder)
 
-        for visual in (
-            '"Floor"',
-            '"Robot"',
-            '"Goal"',
-            '"Overview Camera"',
-            '"Tutorial Light"',
-        ):
-            with self.subTest(visual=visual):
-                self.assertIn(visual, builder)
-
         self.assertNotIn("JsonConvert", builder)
 
-    def test_record_removal_is_explicit_and_local_only(self) -> None:
+    def test_replay_and_inference_use_the_shared_robot(self) -> None:
+        artifacts = (SAMPLE_DIRECTORY / "QuickstartArtifacts.cs").read_text(
+            encoding="utf-8"
+        )
+        player = (SAMPLE_DIRECTORY / "QuickstartReplayPlayer.cs").read_text(
+            encoding="utf-8"
+        )
         controller = (SAMPLE_DIRECTORY / "QuickstartController.cs").read_text(
             encoding="utf-8"
         )
-        confirmation = re.search(
-            r"private void ConfirmRecordRemoval\(\)\s*\{(?P<body>.*?)\n        \}",
-            controller,
-            re.DOTALL,
+        runner = (SAMPLE_DIRECTORY / "QuickstartInferenceRunner.cs").read_text(
+            encoding="utf-8"
         )
-        self.assertIsNotNone(confirmation)
-        body = confirmation.group("body") if confirmation else ""
 
-        self.assertIn("historyStore.Remove", body)
-        self.assertNotIn("CancelAsync", body)
-        self.assertNotIn("File.Delete", body)
-        self.assertNotIn("Directory.Delete", body)
-        self.assertIn("Confirm: Remove Local Record Only", controller)
-        self.assertIn("does not cancel the cloud job", controller)
-        self.assertIn("cancellation capability will be", controller)
+        self.assertIn("replayPlayer.Load(robot", artifacts)
+        self.assertIn("activeRobot.position", player)
+        self.assertIn("activeRobot.rotation", player)
+        self.assertIn("new QuickstartInferenceRunner(activeWorld)", controller)
+        self.assertIn("ForwardMetersPerDecision = 0.2f", runner)
+        self.assertIn("TurnDegreesPerDecision = 15f", runner)
+        self.assertNotIn(
+            "Sentis", "\n".join(path.name for path in SAMPLE_DIRECTORY.iterdir())
+        )
+
+    def test_standalone_smoke_requires_a_successful_action(self) -> None:
+        smoke = (
+            REPOSITORY_ROOT
+            / "Tests~"
+            / "QuickstartStandaloneSmoke"
+            / "QuickstartStandaloneSmoke.cs"
+        ).read_text(encoding="utf-8")
+
+        stopped_index = smoke.index("if (!runner.IsRunning)")
+        action_index = smoke.index('runner.ActionStatus.StartsWith("raw f="')
+        successful_finish = re.search(r"Finish\(\s*true,", smoke[action_index:])
+        self.assertLess(stopped_index, action_index)
+        self.assertIsNotNone(successful_finish)
 
     def test_all_sample_sources_compile_in_compatibility_project(self) -> None:
         project = (
@@ -374,14 +243,12 @@ class QuickstartSampleTests(unittest.TestCase):
             / "TransportCompatibility"
             / "TransportCompatibility.csproj"
         ).read_text(encoding="utf-8")
-
         self.assertIn("../../Samples~/Quickstart/*.cs", project)
 
     def test_ci_runs_quickstart_behaviors(self) -> None:
         workflow = (
             REPOSITORY_ROOT / ".github" / "workflows" / "contracts.yml"
         ).read_text(encoding="utf-8")
-
         self.assertIn("Tools~/QuickstartTests/QuickstartTests.csproj", workflow)
 
     def test_sample_scenario_matches_canonical_fixture(self) -> None:

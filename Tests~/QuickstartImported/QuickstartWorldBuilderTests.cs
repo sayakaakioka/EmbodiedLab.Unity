@@ -236,12 +236,10 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests
                     CreateReplayStep(1, 0.1d, -5d, -3d, 60d),
                 },
                 "eval/real-policy-transition.jsonl.gz");
-            var modes = new QuickstartModeCoordinator(replay.Stop, runner.Stop);
-            modes.EnterReplay();
             replay.Play();
             replay.Tick(0.05d);
             Assert.That(replay.IsPlaying, Is.True);
-            modes.EnterInference();
+            replay.Stop();
             Assert.That(replay.IsPlaying, Is.False);
 
             runner.Start(path);

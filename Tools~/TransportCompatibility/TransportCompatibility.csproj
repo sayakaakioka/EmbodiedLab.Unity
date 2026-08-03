@@ -15,7 +15,6 @@
     <Compile Include="../../Runtime/ScenarioBundleJson.cs" Link="Runtime/ScenarioBundleJson.cs" />
     <Compile Include="../../Runtime/Transport/*.cs" Link="Transport/%(Filename)%(Extension)" />
     <Compile Include="../../Samples~/Quickstart/*.cs" Link="Samples/%(Filename)%(Extension)" />
-    <Compile Include="../UnityEngineShim/Awaitable.cs" Link="UnityEngine/Awaitable.cs" />
     <Compile Include="../UnityEngineShim/QuickstartRuntime.cs" Link="UnityEngine/QuickstartRuntime.cs" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.4" />

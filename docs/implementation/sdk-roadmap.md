@@ -3,8 +3,8 @@
 ## 現在のフェーズ
 
 キャンセル可能な v0 契約、WebSocket 優先の内部 transport、状態を持つ
-`EmbodiedLabJob` facade、固定環境の Quickstart sample、canonical world 表示、
-sample-local job history、bounded artifact/replay reader、Replay playback、
+`EmbodiedLabJob` facade、固定環境の段階的チュートリアル、canonical world 表示、
+bounded artifact/replay reader、Replay playback、
 remote endpoint の HTTPS／WSS invariant、Windows x64 ONNX inference まで実装済みである。
 
 現在は、人間が SDK 全体を初めてレビューできる状態にするため、EmbodiedLab の
@@ -15,9 +15,9 @@ EnvForge の再移行は第二段階とする。
 ## 合意済みの設計
 
 - UPM package ID は `com.embodiedlab.unity` とする。
-- 最初の対応環境は Unity 6000.3 系とする。
+- 最低対応環境は Unity 2022.3.19f1 とし、Unity 6000.3.11f1 でも同じ package を検証する。
 - 公開 API は状態を持つ小さな `EmbodiedLabJob` facade とし、非同期処理には
-  Unity 6 の `Awaitable` を使う。
+  両 Unity 世代で共通の .NET `Task` を使う。バージョン別の互換 wrapper は追加しない。
 - EmbodiedLab の Pydantic モデルを正本とし、versioned JSON Schema を経由して
   C# DTO を生成する。
 - 生成済み C# DTO は SDK リポジトリへコミットする。
@@ -30,9 +30,9 @@ EnvForge の再移行は第二段階とする。
 - submission 作成時に一度だけ返される capability token を job handle が保持し、
   cloud cancel の Bearer token として使う。C# の `CancellationToken` はローカルの
   待機だけを中止し、cloud job の停止には `CancelAsync` を使う。
-- EnvForge 固有の UI と再利用可能なジョブ履歴は EnvForge に残す。Quickstart
-  sample 内には、restore、監視再開、Replay artifact の再利用を説明する最小限の
-  ローカル履歴だけを置く。
+- EnvForge 固有の UI、再利用可能なジョブ履歴、credential 永続化は EnvForge に残す。
+  package sample は一つの in-memory job を扱う段階的チュートリアルとし、restore は
+  capability token の意味を含む補足 API として説明する。
 - DTO 生成には NJsonSchema 11.6.1 と Newtonsoft.Json を使う。
 - Pydantic の draft 2020-12 schema は、現在使っている `$defs`、ローカル参照、
   文字列 `const`、`schema | null` 形式の nullable、および現在の2つの
@@ -54,13 +54,13 @@ EnvForge の再移行は第二段階とする。
   assembly から Runtime assembly を参照する。
 - canonical fixture は `Tests~/Fixtures` を単一の正本として維持し、Unity
   Test Runner から package の解決済みパスを通して読み込む。
-- Unity 6000.3 の import と Test Runner はローカルの最小検証プロジェクトで
-  実行する。CI では Unity Editor を起動せず、schema、生成、.NET fixture、lint、
+- Unity 2022.3.19f1 と Unity 6000.3.11f1 の import と Test Runner は、それぞれ独立した
+  ローカル最小検証プロジェクトで実行する。CI では Unity Editor を起動せず、schema、生成、.NET fixture、lint、
   JSON、再生成差分を検証する。
 - CPU 版 ONNX Runtime は package-owned dependency とし、`1.24.4` の同じ managed／
-  Windows x64 native binary を Quickstart と EnvForge で共有する。native importer は
+  Windows x64 native binary をチュートリアルと EnvForge で共有する。native importer は
   Windows x64 Editor／Standalone だけを有効にする。
-- ONNX inference は Quickstart 内部の composition に限定し、public SDK API、Sentis、
+- ONNX inference は sample 内部の composition に限定し、public SDK API、Sentis、
   model converter、runtime abstraction、model-format fallback は追加しない。
 
 ## 完了済み
@@ -329,6 +329,50 @@ EnvForge の再移行は第二段階とする。
 - canonical `navigation_default` の `goal.radius` を robot radius と同じ 0.45 m にし、
   EmbodiedLab training、Unity inference、Unity の goal 表示で同じ到達範囲を使う
 
+### Quickstart から段階的チュートリアルへの再構成
+
+2026-08-03 に、人間が SDK の主導線を小さな単位で理解できるよう以下を変更した。
+
+- Package Manager の表示名を `Tutorial` とし、README を scenario、接続、submit／監視、
+  artifact、Replay、Windows x64 inference の6章へ再構成
+- cloud job lifecycle、artifact download、表示、world、Replay、inference を実責務ごとの
+  sample-internal file へ分離し、public SDK API は追加しない
+- sample-local job history、atomic save／recovery／retry、history 選択／削除、Advanced panel、
+  activity log overlay を削除
+- restore は `EmbodiedLabJob.Restore` と capability token の意味を説明する補足章へ移し、
+  credential 永続化をチュートリアルへ実装しない
+- `queued` かつ `total_steps = 0` は `0/0` と表示せず、trainer 起動待ちと明示
+- Replay、ONNX contract、observation／action、unsafe local path の純粋ロジックテストは維持し、
+  sample 構造テストは private method の並びではなく、学習順序、責務境界、importable scene、
+  実 SDK API に対する compile を検証
+- tutorial sample は input API 非依存のまま維持し、Unity 2022.3／6.3 検証プロジェクトを
+  Input System 1.17.0 のみへ切り替えて、非推奨の Input Manager 警告を解消
+
+過去の Quickstart history／Advanced UI の完了記録は当時の経緯として上節に残すが、
+現在の package sample には含めない。詳細は
+[tutorial-sample.md](tutorial-sample.md) を参照する。
+
+### Unity 2022.3.19f1 対応
+
+2026-08-03 に、利用者環境の下限である Unity 2022.3.19f1 を package の最小対応版とした。
+
+- Unity 2022 に存在しない `Awaitable` を公開 API から除き、.NET／Unity の標準
+  `Task`／`Task<T>` へ置き換えた。旧 API の shim や互換 wrapper は残していない。
+- Unity 2022.3.19f1 と 6000.3.11f1 の小さな検証 project を別々に保持し、同じ
+  `run_unity_tests.py`／`run_unity_standalone_smoke.py` を `--unity-version` で切り替える。
+- 両 project で Input System 1.17.0 のみを有効にし、SDK package 自体は Input System
+  非依存のままとした。
+- 両 Editor で package／import 済み tutorial test はそれぞれ14件全件成功、実
+  `policy.onnx` を使った2件を含めて skip は0件だった。
+- 両 Editor の Windows x64 standalone で ONNX Runtime 1.24.4 の model load、画像 observation、
+  inference、action 適用、正常終了を確認した。
+- .NET は contract runner、Quickstart 18件、transport 27件、codegen／compatibility build を
+  成功させ、5 project の `dotnet format` を通した。Python は31件中30件成功、Windows では
+  不要な WSL path test 1件のみ skip とし、今回変更した4ファイルの Ruff check／format を
+  通した。
+- Editor log には Input Manager の非推奨警告、Audio Listener の package 警告、C# compile
+  error のいずれもなかった。
+
 ## 完了した SDK スコープ
 
 - API と WebSocket の base URL だけを持つ `EmbodiedLabEndpoints`
@@ -340,14 +384,14 @@ EnvForge の再移行は第二段階とする。
 - Replay Bundle manifest と学習済み ONNX model の download
 - シナリオの保存／復元、Replay manifest／step の読み込み
 - 選択した Replay chunk の遅延 download
-- 固定環境の job lifecycle を一画面で確認できる importable Quickstart sample
-- exact scenario を可視化し、再起動後に job を復元できる sample-local history
+- 固定環境の job lifecycle を6段階で確認できる importable tutorial
+- exact scenario を可視化する一つの in-memory job session
 - 最新 deterministic evaluation chunk を同じ robot で再生する sample-local replay
 - download 済み ONNX model を同じ world／robot で実行する Windows x64 sample-local inference
 - facade の Unity Editor test と .NET compatibility / behavior test
 
-再利用可能なローカル履歴と Editor UI は EnvForge に残す。Unity Editor は CI や
-EmbodiedLab の実行基盤へ追加しない。
+再利用可能なローカル履歴、credential 永続化、Editor UI は EnvForge に残す。Unity Editor
+は CI や EmbodiedLab の実行基盤へ追加しない。
 
 ## 次の段階
 
@@ -362,7 +406,7 @@ EmbodiedLab の実行基盤へ追加しない。
 ## 保留事項
 
 - リポジトリのライセンスは未選定であり、最初のリリース前に決定する必要がある。
-- Unity の対応確認はローカルの Unity 6000.3 Test Runner で行い、PR に正確な
+- Unity の対応確認はローカルの Unity 2022.3／6000.3 Test Runner で行い、PR に正確な
   Editor version、コマンド、結果を記録する。
 - 一般的な利用者認証、quota、billing、任意コード実行は現在の対象外である。
 
@@ -385,11 +429,16 @@ dotnet format Tools~/QuickstartTests/QuickstartTests.csproj --verify-no-changes
 dotnet run --project Tools~/TransportTests/TransportTests.csproj \
   --configuration Release
 dotnet format Tools~/TransportTests/TransportTests.csproj --verify-no-changes
-python3 Tools~/run_unity_tests.py --unity-editor <path-to-unity-6000.3.11f1>
-python3 Tools~/run_unity_tests.py --unity-editor <path-to-unity-6000.3.11f1> \
+python3 Tools~/run_unity_tests.py --unity-version 2022.3 \
+  --unity-editor <path-to-unity-2022.3.19f1>
+python3 Tools~/run_unity_tests.py --unity-version 6000.3 \
+  --unity-editor <path-to-unity-6000.3.11f1>
+python3 Tools~/run_unity_tests.py --unity-version <2022.3-or-6000.3> \
+  --unity-editor <path-to-matching-unity-editor> \
   --policy <path-to-policy.onnx> --with-graphics
 python3 Tools~/run_unity_standalone_smoke.py \
-  --unity-editor <path-to-unity-6000.3.11f1> \
+  --unity-version <2022.3-or-6000.3> \
+  --unity-editor <path-to-matching-unity-editor> \
   --policy <path-to-policy.onnx> --output-directory <temporary-output>
 git diff --check
 ```

@@ -1,0 +1,3 @@
+# Unity serializes empty YAML values with a trailing space.
+TestProjects~/Unity2022.3/ProjectSettings/ProjectSettings.asset -whitespace
+TestProjects~/Unity6000.3/ProjectSettings/ProjectSettings.asset -whitespace

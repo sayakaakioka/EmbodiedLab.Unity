@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import importlib.util
-from pathlib import Path
+import json
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest import mock
 import xml.etree.ElementTree as ET
-
+from pathlib import Path
+from unittest import mock
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "run_unity_tests.py"
 MODULE_SPEC = importlib.util.spec_from_file_location("run_unity_tests", MODULE_PATH)
@@ -57,6 +57,7 @@ class RunUnityTestsTests(unittest.TestCase):
         repository_root: Path,
         *,
         invalid_sample: bool = False,
+        unity_version: str = "6000.3",
     ) -> Path:
         sample_source = repository_root / run_unity_tests.SAMPLE_SOURCE_RELATIVE_PATH
         sample_source.mkdir(parents=True)
@@ -73,7 +74,7 @@ class RunUnityTestsTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-        project_path = repository_root / "TestProjects~" / "Unity6000.3"
+        project_path = repository_root / "TestProjects~" / f"Unity{unity_version}"
         (project_path / "Assets").mkdir(parents=True)
         return project_path
 
@@ -81,7 +82,10 @@ class RunUnityTestsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary_path = Path(temporary_directory)
             repository_root = temporary_path / "repository"
-            project_path = self.create_repository_layout(repository_root)
+            project_path = self.create_repository_layout(
+                repository_root,
+                unity_version="2022.3",
+            )
             unity_editor = temporary_path / "Unity.exe"
             unity_editor.touch()
             output_directory = temporary_path / "output"
@@ -128,6 +132,8 @@ class RunUnityTestsTests(unittest.TestCase):
                 str(MODULE_PATH),
                 "--unity-editor",
                 str(unity_editor),
+                "--unity-version",
+                "2022.3",
                 "--output-directory",
                 str(output_directory),
             ]
@@ -229,6 +235,36 @@ class RunUnityTestsTests(unittest.TestCase):
         self.assertEqual("results.xml", command[12])
         self.assertEqual("editor.log", command[14])
 
+    def test_supported_validation_projects_and_package_floor(self) -> None:
+        repository_root = run_unity_tests.REPOSITORY_ROOT
+        package_manifest = json.loads(
+            (repository_root / "package.json").read_text(encoding="utf-8")
+        )
+
+        self.assertEqual("2022.3", package_manifest["unity"])
+        self.assertEqual("19f1", package_manifest["unityRelease"])
+        self.assertNotIn("com.unity.inputsystem", package_manifest["dependencies"])
+        self.assertEqual(
+            {"2022.3", "6000.3"},
+            set(run_unity_tests.VALIDATION_PROJECTS),
+        )
+        for project_relative_path in run_unity_tests.VALIDATION_PROJECTS.values():
+            project_root = repository_root / project_relative_path
+            manifest = json.loads(
+                (project_root / "Packages" / "manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            project_settings = (
+                project_root / "ProjectSettings" / "ProjectSettings.asset"
+            ).read_text(encoding="utf-8")
+
+            self.assertEqual(
+                "1.17.0",
+                manifest["dependencies"]["com.unity.inputsystem"],
+            )
+            self.assertIn("  activeInputHandler: 1\n", project_settings)
+
     @unittest.skipIf(
         sys.platform == "win32", "WSL path conversion is not used on Windows"
     )
@@ -248,7 +284,7 @@ class RunUnityTestsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             results_path = Path(temporary_directory) / "results.xml"
             test_results = self.passing_results()
-            test_results.pop(sorted(test_results)[0])
+            test_results.pop(min(test_results))
             self.write_results(results_path, test_results)
 
             with self.assertRaisesRegex(RuntimeError, "did not execute required tests"):
@@ -258,7 +294,7 @@ class RunUnityTestsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             results_path = Path(temporary_directory) / "results.xml"
             test_results = self.passing_results()
-            test_results[sorted(test_results)[0]] = "Skipped"
+            test_results[min(test_results)] = "Skipped"
             self.write_results(results_path, test_results)
 
             with self.assertRaisesRegex(RuntimeError, "did not pass required tests"):

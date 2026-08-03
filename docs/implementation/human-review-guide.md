@@ -5,7 +5,7 @@
 内容把握を主目的にした標準レビューは 90 分を見込む。
 
 - 60 分: 公開 API、ジョブ lifecycle、成果物取得までの主導線
-- 90 分: Replay、Quickstart、テスト境界を含む標準レビュー
+- 90 分: Replay、チュートリアル、テスト境界を含む標準レビュー
 - 120 分: 実 Unity Editor / Standalone の動作確認まで含む完全レビュー
 
 EnvForge との移行差分は第二段階で扱い、このレビュー時間には含めない。
@@ -83,18 +83,21 @@ manifest、chunk path、compressed/decompressed byte、1行、step 数の上限�
 固定 invariant であることを確認する。Replay 行の `scenario_id` と `job_id` が
 選択中の job と一致しない場合に拒否する経路も確認する。
 
-## 6. Quickstart で利用者の体験を確認する（15分）
+## 6. チュートリアルで利用者の体験を確認する（15分）
 
 次を読む。
 
 1. `Samples~/Quickstart/README.md`
-2. `Samples~/Quickstart/QuickstartController.cs`
-3. `Samples~/Quickstart/QuickstartWorldBuilder.cs`
-4. `Samples~/Quickstart/QuickstartOnnxPolicy.cs`
+2. `Samples~/Quickstart/QuickstartCloudJob.cs`
+3. `Samples~/Quickstart/QuickstartArtifacts.cs`
+4. `Samples~/Quickstart/QuickstartController.cs`
+5. `Samples~/Quickstart/QuickstartController.View.cs`
+6. `Samples~/Quickstart/QuickstartWorldBuilder.cs`
+7. `Samples~/Quickstart/QuickstartOnnxPolicy.cs`
 
-canonical Scenario から同じ world を構築し、submit、監視、cancel、restore、
-artifact download、Replay、Windows x64 ONNX inference までを一画面で確認できる。
-Quickstart 固有の history/UI が SDK の公開 API に混ざっていないことも見る。
+README の6段階に沿って、canonical Scenario、submit、監視、cancel、artifact download、
+Replay、Windows x64 ONNX inference を順に確認する。restore は補足 API として扱い、
+sample-local history、credential store、Advanced UI が残っていないことも見る。
 
 ## 7. テスト境界と非対象を確認する（10分）
 

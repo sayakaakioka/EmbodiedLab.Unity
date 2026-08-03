@@ -1,9 +1,6 @@
 #nullable enable
 
 using System;
-using System.Collections.Generic;
-using System.Globalization;
-using System.IO;
 using System.Threading;
 using EmbodiedLab.Contracts;
 using EmbodiedLab.Unity;
@@ -12,19 +9,8 @@ using UnityEngine;
 namespace EmbodiedLab.Unity.Samples.Quickstart
 {
     [DisallowMultipleComponent]
-    public sealed class QuickstartController : MonoBehaviour
+    public sealed partial class QuickstartController : MonoBehaviour
     {
-        private const int TitleFontSize = 44;
-        private const int SectionFontSize = 36;
-        private const int BodyFontSize = 30;
-        private const float PanelLeft = 40f;
-        private const float PanelTop = 300f;
-        private const float PanelMaximumWidth = 1040f;
-        private const float PanelBottomMargin = 40f;
-        private const float FieldLabelWidth = 300f;
-        private const float ButtonHeight = 60f;
-        private const float TextFieldHeight = 56f;
-
         [SerializeField]
         private string apiBaseUrl = "https://api.example.com/";
 
@@ -35,142 +21,28 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private TextAsset? scenarioJson = null;
 
         private CancellationTokenSource? lifetimeCancellation;
-        private CancellationTokenSource? monitorCancellation;
-        private QuickstartHistoryStore? historyStore;
+        private QuickstartCloudJob? cloudJob;
+        private QuickstartArtifacts? artifacts;
         private QuickstartWorldBuilder? worldBuilder;
         private QuickstartReplayPlayer? replayPlayer;
         private QuickstartInferenceRunner? inferenceRunner;
-        private QuickstartModeCoordinator? modeCoordinator;
-        private QuickstartLogOverlay? logOverlay;
-        private QuickstartHistoryRecord? selectedHistoryRecord;
-        private EmbodiedLabJob? job;
-        private Vector2 panelScrollPosition;
-        private Vector2 historyScrollPosition;
-        private GUIStyle panelStyle = null!;
-        private GUIStyle titleStyle = null!;
-        private GUIStyle sectionStyle = null!;
-        private GUIStyle bodyStyle = null!;
-        private GUIStyle buttonStyle = null!;
-        private GUIStyle textFieldStyle = null!;
+        private ScenarioBundle? scenario;
         private bool destroyed;
-        private bool submissionRequestRunning;
-        private bool monitorRunning;
-        private bool restoreRunning;
-        private bool cancelRequestRunning;
-        private bool modelDownloadRunning;
-        private bool replayDownloadRunning;
-        private bool cancellationConfirmationArmed;
-        private bool removalConfirmationArmed;
-        private bool selectedHistoryRecordDirty;
-        private bool showAdvanced;
-        private int monitorGeneration;
-        private DateTimeOffset nextHistorySaveRetryAtUtc = DateTimeOffset.MinValue;
+        private bool cloudCancellationArmed;
         private string submissionIdText = "Not submitted";
         private string jobStatusText = "Not submitted";
         private string progressText = "-";
         private string activityText = "Ready.";
-        private string modelPathText = "-";
-        private string activeTargetText = "-";
-        private string historyStorageText = "Ready.";
 
         private void Awake()
         {
             lifetimeCancellation = new CancellationTokenSource();
-            logOverlay = new QuickstartLogOverlay();
-            logOverlay.Add(activityText);
-            historyStore = new QuickstartHistoryStore(
-                Path.Combine(
-                    Application.persistentDataPath,
-                    "EmbodiedLabQuickstart",
-                    "job-history.json"));
+            cloudJob = new QuickstartCloudJob();
+            artifacts = new QuickstartArtifacts();
             worldBuilder = new QuickstartWorldBuilder();
             replayPlayer = new QuickstartReplayPlayer();
-            modeCoordinator = new QuickstartModeCoordinator(
-                () => replayPlayer?.Stop(),
-                () => inferenceRunner?.Stop());
-
-            TryLoadHistory();
-            TryBuildBundledScenario();
-        }
-
-        private void OnGUI()
-        {
-            RetryDirtyHistory();
-            logOverlay?.Add(activityText);
-            EnsureGuiStyles();
-            float panelWidth = Mathf.Min(PanelMaximumWidth, Screen.width - (PanelLeft * 2f));
-            float panelHeight = Mathf.Max(
-                360f,
-                Screen.height - PanelTop - PanelBottomMargin);
-            GUILayout.BeginArea(
-                new Rect(PanelLeft, PanelTop, panelWidth, panelHeight),
-                panelStyle);
-            panelScrollPosition = GUILayout.BeginScrollView(panelScrollPosition);
-            GUILayout.Label("EmbodiedLab Quickstart", titleStyle);
-            GUILayout.Label(
-                "Submit a fixed scenario, wait for training, then try the result.",
-                bodyStyle);
-            GUILayout.Space(16);
-
-            GUILayout.Label("1. Connect", sectionStyle);
-            DrawTextField("API base URL", ref apiBaseUrl);
-            DrawTextField("Result WebSocket URL", ref resultWebSocketBaseUrl);
-
-            if (UsesExampleEndpoint(apiBaseUrl) ||
-                UsesExampleEndpoint(resultWebSocketBaseUrl))
-            {
-                GUILayout.Label(
-                    "Replace both example endpoints with your EmbodiedLab deployment.",
-                    bodyStyle);
-            }
-
-            if (scenarioJson == null)
-            {
-                GUILayout.Label("The fixed scenario asset is not assigned.", bodyStyle);
-            }
-
-            GUILayout.Space(16);
-            GUILayout.Label("2. Train", sectionStyle);
-            DrawButton("Submit and Train", CanSubmit(), StartSubmission);
-            DrawValue("Job status", jobStatusText);
-            DrawValue("Progress", progressText);
-            DrawValue("Activity", activityText);
-
-            GUILayout.Space(16);
-            GUILayout.Label("3. Try the result", sectionStyle);
-            DrawButton("Download Model", CanDownloadModel(), StartModelDownload);
-            DrawButton("Run Inference", CanRunInference(), StartInference);
-            if (CanStopInference())
-            {
-                DrawButton("Stop Inference", true, StopInference);
-            }
-
-            GUILayout.Space(8);
-            DrawButton("Download Replay", CanDownloadReplay(), StartReplayDownload);
-            DrawButton("Play Replay", CanPlayReplay(), StartReplayPlayback);
-            if (replayPlayer?.IsPlaying == true)
-            {
-                DrawButton("Stop Replay", true, StopReplayPlayback);
-            }
-
-            GUILayout.Space(20);
-            string advancedLabel = showAdvanced
-                ? "Hide Advanced"
-                : "Show Advanced";
-            DrawButton(advancedLabel, true, () => showAdvanced = !showAdvanced);
-            if (showAdvanced)
-            {
-                DrawAdvanced();
-            }
-
-            GUILayout.Space(16);
-            GUILayout.Label(
-                "Local cancellation stops this sample only. Use Cancel Cloud Job " +
-                "to stop the remote training job.",
-                bodyStyle);
-            GUILayout.EndScrollView();
-            GUILayout.EndArea();
-            logOverlay?.Draw(PanelLeft, 20f, PanelMaximumWidth);
+            Subscribe();
+            TryBuildScenario();
         }
 
         private void Update()
@@ -182,17 +54,13 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private void OnDestroy()
         {
             destroyed = true;
-            if (selectedHistoryRecordDirty && selectedHistoryRecord != null)
-            {
-                TryPersistDetachedHistoryRecord(selectedHistoryRecord);
-            }
-
             lifetimeCancellation?.Cancel();
-            StopCurrentJob();
+            Unsubscribe();
+            cloudJob?.Dispose();
+            cloudJob = null;
+            artifacts = null;
             inferenceRunner?.DisposeWithoutReset();
             inferenceRunner = null;
-            modeCoordinator = null;
-            logOverlay = null;
             replayPlayer?.Clear();
             replayPlayer = null;
             worldBuilder?.Dispose();
@@ -201,170 +69,14 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             lifetimeCancellation = null;
         }
 
-        private void EnsureGuiStyles()
-        {
-            if (panelStyle != null)
-            {
-                return;
-            }
-
-            panelStyle = new GUIStyle(GUI.skin.box)
-            {
-                padding = new RectOffset(24, 24, 24, 24),
-            };
-            titleStyle = CreateLabelStyle(TitleFontSize, FontStyle.Bold);
-            sectionStyle = CreateLabelStyle(SectionFontSize, FontStyle.Bold);
-            bodyStyle = CreateLabelStyle(BodyFontSize, FontStyle.Normal);
-            buttonStyle = new GUIStyle(GUI.skin.button)
-            {
-                fontSize = BodyFontSize,
-                fontStyle = FontStyle.Bold,
-                fixedHeight = ButtonHeight,
-                wordWrap = true,
-            };
-            textFieldStyle = new GUIStyle(GUI.skin.textField)
-            {
-                fontSize = BodyFontSize,
-                fixedHeight = TextFieldHeight,
-            };
-        }
-
-        private static GUIStyle CreateLabelStyle(int fontSize, FontStyle fontStyle)
-        {
-            return new GUIStyle(GUI.skin.label)
-            {
-                fontSize = fontSize,
-                fontStyle = fontStyle,
-                wordWrap = true,
-            };
-        }
-
-        private void DrawTextField(string label, ref string value)
-        {
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(label, bodyStyle, GUILayout.Width(FieldLabelWidth));
-            value = GUILayout.TextField(
-                value,
-                textFieldStyle,
-                GUILayout.Height(TextFieldHeight));
-            GUILayout.EndHorizontal();
-        }
-
-        private void DrawButton(string label, bool enabled, Action action)
-        {
-            bool previousEnabled = GUI.enabled;
-            GUI.enabled = previousEnabled && enabled;
-            if (GUILayout.Button(label, buttonStyle, GUILayout.Height(ButtonHeight)))
-            {
-                action();
-            }
-
-            GUI.enabled = previousEnabled;
-        }
-
-        private void DrawValue(string label, string value)
-        {
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(label, bodyStyle, GUILayout.Width(FieldLabelWidth));
-            GUILayout.Label(value, bodyStyle);
-            GUILayout.EndHorizontal();
-        }
-
-        private void DrawAdvanced()
-        {
-            GUILayout.Space(16);
-            GUILayout.Label("Cloud and local controls", sectionStyle);
-            DrawCloudCancellation();
-            DrawButton("Stop Replay and Reset", CanStopReplay(), StopReplayPlayback);
-            DrawButton("Stop Inference and Reset", CanStopInference(), StopInference);
-
-            GUILayout.Space(16);
-            GUILayout.Label("Details", sectionStyle);
-            DrawValue("Submission ID", submissionIdText);
-            DrawValue("Active cloud target", activeTargetText);
-            DrawValue("Downloaded model", modelPathText);
-            DrawValue("Replay chunk", replayPlayer?.SelectedChunk ?? "-");
-            DrawValue("Replay episode", replayPlayer?.CurrentEpisode ?? "-");
-            DrawValue("Replay step", replayPlayer?.CurrentStep ?? "-");
-            DrawValue("Replay status", replayPlayer?.Status ?? "Unavailable");
-            DrawValue("Inference status", inferenceRunner?.Status ?? "Unavailable");
-            DrawValue(
-                "Observation",
-                inferenceRunner?.ObservationStatus ?? "-");
-            DrawValue("Action", inferenceRunner?.ActionStatus ?? "-");
-            DrawValue("History storage", historyStorageText);
-
-            GUILayout.Space(16);
-            DrawHistory();
-        }
-
-        private void DrawHistory()
-        {
-            GUILayout.Label("Local history (newest first)", sectionStyle);
-            if (historyStore == null || historyStore.Records.Count == 0)
-            {
-                GUILayout.Label("No saved jobs.", bodyStyle);
-                return;
-            }
-
-            historyScrollPosition = GUILayout.BeginScrollView(
-                historyScrollPosition,
-                GUILayout.Height(170));
-            foreach (QuickstartHistoryRecord record in historyStore.Records)
-            {
-                string marker = ReferenceEquals(record, selectedHistoryRecord) ? ">" : " ";
-                string label =
-                    $"{marker} {record.SubmittedAtUtc} | {record.Status} | {record.SubmissionId}";
-                bool previousEnabled = GUI.enabled;
-                GUI.enabled = previousEnabled && CanSelectHistory();
-                if (GUILayout.Button(
-                        label,
-                        buttonStyle,
-                        GUILayout.Height(ButtonHeight)))
-                {
-                    StartHistorySelection(record.SubmissionId);
-                }
-
-                GUI.enabled = previousEnabled;
-            }
-
-            GUILayout.EndScrollView();
-
-            if (selectedHistoryRecord == null)
-            {
-                return;
-            }
-
-            if (!removalConfirmationArmed)
-            {
-                DrawButton(
-                    "Remove Local History Record",
-                    CanChangeHistory(),
-                    ArmRecordRemoval);
-                return;
-            }
-
-            GUILayout.Label(GetRemovalWarning(selectedHistoryRecord), bodyStyle);
-            DrawButton(
-                "Confirm: Remove Local Record Only",
-                CanChangeHistory(),
-                ConfirmRecordRemoval);
-            DrawButton("Keep Record", true, DisarmRecordRemoval);
-        }
-
         private bool CanSubmit()
         {
             return !destroyed &&
-                !submissionRequestRunning &&
-                !monitorRunning &&
-                !restoreRunning &&
-                !cancelRequestRunning &&
-                !modelDownloadRunning &&
-                !replayDownloadRunning &&
-                !selectedHistoryRecordDirty &&
-                !cancellationConfirmationArmed &&
-                historyStore?.IsWritable == true &&
-                scenarioJson != null &&
+                cloudJob != null &&
+                !cloudJob.IsBusy &&
+                !cloudJob.IsMonitoring &&
+                artifacts?.IsBusy == false &&
+                scenario != null &&
                 !UsesExampleEndpoint(apiBaseUrl) &&
                 !UsesExampleEndpoint(resultWebSocketBaseUrl);
         }
@@ -372,75 +84,39 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private bool CanCancel()
         {
             return !destroyed &&
-                job != null &&
-                job.CanCancel &&
-                !job.IsTerminal &&
-                !submissionRequestRunning &&
-                !restoreRunning &&
-                !cancelRequestRunning &&
-                !modelDownloadRunning &&
-                !replayDownloadRunning;
+                cloudJob?.CanCancel == true &&
+                artifacts?.IsBusy == false;
         }
 
-        private bool CanDownloadModel()
+        private bool CanDownloadArtifacts()
         {
             return !destroyed &&
-                job?.LatestResult?.Status == ResultStatus.Completed &&
-                selectedHistoryRecord != null &&
-                !submissionRequestRunning &&
-                !restoreRunning &&
-                !cancelRequestRunning &&
-                !modelDownloadRunning &&
-                !replayDownloadRunning;
-        }
-
-        private bool CanDownloadReplay()
-        {
-            return !destroyed &&
-                job?.LatestResult?.Status == ResultStatus.Completed &&
-                selectedHistoryRecord != null &&
-                !submissionRequestRunning &&
-                !restoreRunning &&
-                !cancelRequestRunning &&
-                !modelDownloadRunning &&
-                !replayDownloadRunning;
+                cloudJob?.IsBusy == false &&
+                cloudJob.IsMonitoring == false &&
+                cloudJob.Job?.LatestResult?.Status == ResultStatus.Completed &&
+                artifacts?.IsBusy == false;
         }
 
         private bool CanPlayReplay()
         {
             return !destroyed &&
+                cloudJob?.IsBusy == false &&
+                artifacts?.IsBusy == false &&
                 replayPlayer?.IsLoaded == true &&
                 !replayPlayer.IsPlaying &&
-                inferenceRunner?.IsRunning != true &&
-                !submissionRequestRunning &&
-                !restoreRunning &&
-                !cancelRequestRunning &&
-                !modelDownloadRunning &&
-                !replayDownloadRunning;
-        }
-
-        private bool CanStopReplay()
-        {
-            return !destroyed && replayPlayer?.IsLoaded == true;
+                inferenceRunner?.IsRunning != true;
         }
 
         private bool CanRunInference()
         {
             return !destroyed &&
-                selectedHistoryRecord?.Status == ResultStatus.Completed &&
-                HasRunnableSelectedModel() &&
-                inferenceRunner != null &&
-                !inferenceRunner.IsRunning &&
-                !submissionRequestRunning &&
-                !restoreRunning &&
-                !cancelRequestRunning &&
-                !modelDownloadRunning &&
-                !replayDownloadRunning;
-        }
-
-        private bool CanStopInference()
-        {
-            return !destroyed && inferenceRunner?.IsRunning == true;
+                cloudJob?.IsBusy == false &&
+                artifacts?.IsBusy == false &&
+                replayPlayer?.IsPlaying != true &&
+                inferenceRunner?.IsRunning != true &&
+                artifacts.HasRunnableModel(
+                    cloudJob.Job,
+                    Application.persistentDataPath);
         }
 
         private static bool UsesExampleEndpoint(string value)
@@ -457,68 +133,79 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         private void StartSubmission()
         {
-            if (!CanSubmit())
+            if (!CanSubmit() ||
+                cloudJob == null ||
+                artifacts == null ||
+                scenario == null ||
+                lifetimeCancellation == null)
             {
                 return;
             }
 
-            submissionRequestRunning = true;
-            ClearReplayForModeChange();
-            cancellationConfirmationArmed = false;
-            removalConfirmationArmed = false;
-            _ = SubmitAndMonitorAsync();
-        }
-
-        private void ArmCloudCancellation()
-        {
-            removalConfirmationArmed = false;
-            cancellationConfirmationArmed = true;
-            activityText = "Confirm the active cloud cancellation target below.";
-        }
-
-        private void DisarmCloudCancellation()
-        {
-            cancellationConfirmationArmed = false;
-            activityText = "Cloud job kept running.";
+            cloudCancellationArmed = false;
+            ResetTutorialResult();
+            var endpoints = new EmbodiedLabEndpoints(
+                apiBaseUrl.Trim(),
+                resultWebSocketBaseUrl.Trim());
+            _ = cloudJob.SubmitAndMonitorAsync(
+                endpoints,
+                scenario,
+                lifetimeCancellation.Token);
         }
 
         private void StartCloudCancellation()
         {
-            if (!CanCancel())
+            if (!CanCancel() || cloudJob == null || lifetimeCancellation == null)
             {
                 return;
             }
 
-            cancellationConfirmationArmed = false;
-            _ = CancelCloudJobAsync();
+            cloudCancellationArmed = false;
+            _ = cloudJob.CancelAsync(lifetimeCancellation.Token);
         }
 
         private void StartModelDownload()
         {
-            if (!CanDownloadModel())
+            EmbodiedLabJob? job = cloudJob?.Job;
+            if (!CanDownloadArtifacts() ||
+                job == null ||
+                artifacts == null ||
+                lifetimeCancellation == null)
             {
                 return;
             }
 
-            cancellationConfirmationArmed = false;
-            removalConfirmationArmed = false;
-            modeCoordinator?.Clear();
-            replayPlayer?.Stop();
-            _ = DownloadModelAsync();
+            StopResultExecution();
+            _ = artifacts.DownloadModelAsync(
+                job,
+                Application.persistentDataPath,
+                lifetimeCancellation.Token);
         }
 
         private void StartReplayDownload()
         {
-            if (!CanDownloadReplay())
+            EmbodiedLabJob? job = cloudJob?.Job;
+            Transform? robot = worldBuilder?.RobotTransform;
+            if (!CanDownloadArtifacts() ||
+                job == null ||
+                robot == null ||
+                artifacts == null ||
+                replayPlayer == null ||
+                scenario == null ||
+                lifetimeCancellation == null)
             {
                 return;
             }
 
-            cancellationConfirmationArmed = false;
-            removalConfirmationArmed = false;
-            modeCoordinator?.Clear();
-            replayPlayer?.Stop();
-            _ = DownloadReplayAsync();
+            StopResultExecution();
+            replayPlayer.Clear();
+            _ = artifacts.DownloadReplayAsync(
+                job,
+                scenario.ScenarioId,
+                Application.persistentDataPath,
+                robot,
+                replayPlayer,
+                lifetimeCancellation.Token);
         }
 
         private void StartReplayPlayback()
@@ -528,596 +215,79 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 return;
             }
 
-            modeCoordinator?.EnterReplay();
+            inferenceRunner?.Stop();
             replayPlayer!.Play();
             activityText = "Replay playback started.";
         }
 
-        private void StartInference()
+        private void StopReplayPlayback()
         {
-            if (!CanRunInference())
+            if (replayPlayer?.IsPlaying != true)
             {
                 return;
             }
 
-            modeCoordinator?.EnterInference();
-            inferenceRunner!.Start(selectedHistoryRecord!.LocalOnnxPath!);
+            replayPlayer.Stop();
+            activityText = "Replay stopped at the first loaded step.";
+        }
+
+        private void StartInference()
+        {
+            if (!CanRunInference() || artifacts == null)
+            {
+                return;
+            }
+
+            replayPlayer?.Stop();
+            inferenceRunner!.Start(artifacts.ModelPath);
             activityText = inferenceRunner.Status;
         }
 
         private void StopInference()
         {
-            if (!CanStopInference())
+            if (inferenceRunner?.IsRunning != true)
             {
                 return;
             }
 
-            inferenceRunner!.Stop();
+            inferenceRunner.Stop();
             activityText = inferenceRunner.Status;
         }
 
-        private void StopReplayPlayback()
+        private void ArmCloudCancellation()
         {
-            if (!CanStopReplay())
-            {
-                return;
-            }
-
-            replayPlayer!.Stop();
-            activityText = "Replay stopped at the first loaded step.";
+            cloudCancellationArmed = true;
+            activityText = "Confirm cloud cancellation below.";
         }
 
-        private void StartHistorySelection(string submissionId)
+        private void DisarmCloudCancellation()
         {
-            if (!CanSelectHistory())
-            {
-                return;
-            }
-
-            restoreRunning = true;
-            ClearReplayForModeChange();
-            cancellationConfirmationArmed = false;
-            removalConfirmationArmed = false;
-            _ = RestoreHistoryRecordAsync(submissionId);
+            cloudCancellationArmed = false;
+            activityText = "Cloud job kept running.";
         }
 
-        private async Awaitable SubmitAndMonitorAsync()
+        private void HandleSubmissionStarted(string submissionId)
         {
-            if (scenarioJson == null ||
-                lifetimeCancellation == null ||
-                historyStore == null ||
-                worldBuilder == null)
-            {
-                submissionRequestRunning = false;
-                return;
-            }
-
-            EmbodiedLabJob? submittedJob = null;
-            bool trainingStartConfirmed = true;
-            int generation = -1;
-            try
-            {
-                string exactScenarioJson = scenarioJson.text;
-                ScenarioBundle scenario = ScenarioBundleJson.Deserialize(exactScenarioJson);
-                var endpoints = new EmbodiedLabEndpoints(
-                    apiBaseUrl.Trim(),
-                    resultWebSocketBaseUrl.Trim());
-
-                activityText = "Submitting scenario and starting training...";
-                try
-                {
-                    submittedJob = await EmbodiedLabJob.SubmitAsync(
-                        endpoints,
-                        scenario,
-                        lifetimeCancellation.Token);
-                }
-                catch (EmbodiedLabTrainingStartException exception)
-                {
-                    submittedJob = exception.Job;
-                    trainingStartConfirmed = false;
-                }
-
-                var record = new QuickstartHistoryRecord
-                {
-                    SubmissionId = submittedJob.SubmissionId,
-                    SubmittedAtUtc = DateTimeOffset.UtcNow.ToString(
-                        "O",
-                        CultureInfo.InvariantCulture),
-                    ApiBaseUrl = endpoints.ApiBaseUri.AbsoluteUri,
-                    ResultWebSocketBaseUrl = endpoints.ResultWebSocketBaseUri.AbsoluteUri,
-                    ScenarioJson = exactScenarioJson,
-                    Status = ResultStatus.Queued,
-                    CancelToken = submittedJob.CancelToken,
-                };
-                if (destroyed)
-                {
-                    TryPersistDetachedHistoryRecord(record);
-                    return;
-                }
-
-                selectedHistoryRecord = record;
-                selectedHistoryRecordDirty = true;
-                AttachJob(submittedJob);
-                submittedJob = null;
-                ApplyHistoryRecord(record);
-                (CancellationToken token, int operationGeneration) = StartMonitor();
-                generation = operationGeneration;
-                submissionRequestRunning = false;
-
-                activityText = trainingStartConfirmed
-                    ? "Waiting for WebSocket result updates..."
-                    : "Training start was not confirmed. Monitoring remains active; " +
-                        "cloud cancellation is available.";
-                if (!trainingStartConfirmed)
-                {
-                    logOverlay?.Add(activityText, QuickstartLogLevel.Warning);
-                }
-
-                TryBuildWorld(scenario);
-                TryPersistHistoryRecord(record);
-
-                ResultDocument result = await job!.WaitForCompletionAsync(token);
-                ApplyResult(result);
-            }
-            catch (OperationCanceledException)
-            {
-                if (!destroyed && generation == monitorGeneration)
-                {
-                    activityText =
-                        "Local monitoring stopped. The cloud job may still be running.";
-                }
-            }
-            catch (Exception exception)
-            {
-                ReportError("Training request failed", exception);
-            }
-            finally
-            {
-                submissionRequestRunning = false;
-                submittedJob?.Dispose();
-                FinishMonitor(generation);
-            }
-        }
-
-        private async Awaitable RestoreHistoryRecordAsync(string submissionId)
-        {
-            if (historyStore == null ||
-                worldBuilder == null ||
-                lifetimeCancellation == null)
-            {
-                restoreRunning = false;
-                return;
-            }
-
-            QuickstartHistoryRecord? record = historyStore.Find(submissionId);
-            if (record == null)
-            {
-                activityText = "The selected history record no longer exists.";
-                restoreRunning = false;
-                return;
-            }
-
-            EmbodiedLabJob? restoredJob = null;
-            int generation = -1;
-            bool restorePhaseCompleted = false;
-            try
-            {
-                ScenarioBundle scenario = ScenarioBundleJson.Deserialize(record.ScenarioJson);
-                var endpoints = new EmbodiedLabEndpoints(
-                    record.ApiBaseUrl,
-                    record.ResultWebSocketBaseUrl);
-                restoredJob = EmbodiedLabJob.Restore(
-                    endpoints,
-                    record.SubmissionId,
-                    record.CancelToken);
-
-                selectedHistoryRecord = record;
-                selectedHistoryRecordDirty = false;
-                nextHistorySaveRetryAtUtc = DateTimeOffset.MinValue;
-                AttachJob(restoredJob);
-                restoredJob = null;
-                ApplyHistoryRecord(record);
-                activityText = "Refreshing the selected cloud job...";
-                TryBuildWorld(scenario);
-
-                ResultDocument refreshed = await job!.RefreshAsync(
-                    lifetimeCancellation.Token);
-                ApplyResult(refreshed);
-                if (refreshed.Status == ResultStatus.Completed)
-                {
-                    TryLoadPersistedReplay(record);
-                }
-
-                if (job.IsTerminal)
-                {
-                    return;
-                }
-
-                activityText = "Resuming WebSocket result monitoring...";
-                (CancellationToken token, int operationGeneration) = StartMonitor();
-                generation = operationGeneration;
-                restoreRunning = false;
-                restorePhaseCompleted = true;
-                ResultDocument completed = await job.WaitForCompletionAsync(token);
-                ApplyResult(completed);
-            }
-            catch (OperationCanceledException)
-            {
-                if (!destroyed && generation == monitorGeneration)
-                {
-                    activityText =
-                        "Local monitoring stopped. The cloud job may still be running.";
-                }
-            }
-            catch (Exception exception)
-            {
-                ReportError("History restore failed", exception);
-            }
-            finally
-            {
-                restoredJob?.Dispose();
-                if (!restorePhaseCompleted)
-                {
-                    restoreRunning = false;
-                }
-
-                FinishMonitor(generation);
-            }
-        }
-
-        private async Awaitable CancelCloudJobAsync()
-        {
-            EmbodiedLabJob? activeJob = job;
-            if (activeJob == null || lifetimeCancellation == null)
-            {
-                return;
-            }
-
-            cancelRequestRunning = true;
-            try
-            {
-                activityText = "Requesting cloud cancellation...";
-                ResultDocument result = await activeJob.CancelAsync(
-                    lifetimeCancellation.Token);
-                if (ReferenceEquals(job, activeJob))
-                {
-                    ApplyResult(result);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                if (!destroyed)
-                {
-                    activityText = "The local cancellation request stopped.";
-                }
-            }
-            catch (Exception exception)
-            {
-                ReportError("Cloud cancellation failed", exception);
-            }
-            finally
-            {
-                cancelRequestRunning = false;
-            }
-        }
-
-        private async Awaitable DownloadModelAsync()
-        {
-            EmbodiedLabJob? activeJob = job;
-            QuickstartHistoryRecord? record = selectedHistoryRecord;
-            if (activeJob == null ||
-                record == null ||
-                lifetimeCancellation == null ||
-                historyStore == null)
-            {
-                return;
-            }
-
-            modelDownloadRunning = true;
-            try
-            {
-                string destinationPath = QuickstartLocalPaths.GetModelPath(
-                    Application.persistentDataPath,
-                    activeJob.SubmissionId);
-                Directory.CreateDirectory(
-                    Path.GetDirectoryName(destinationPath) ??
-                    throw new InvalidOperationException(
-                        "Model output directory is unavailable."));
-
-                activityText = "Downloading trained model...";
-                await activeJob.DownloadModelAsync(
-                    destinationPath,
-                    lifetimeCancellation.Token);
-                record.LocalOnnxPath = destinationPath;
-                selectedHistoryRecordDirty = true;
-                TryPersistHistoryRecord(record);
-                modelPathText = destinationPath;
-                activityText = "Model downloaded.";
-            }
-            catch (OperationCanceledException)
-            {
-                if (!destroyed)
-                {
-                    activityText = "The local model download stopped.";
-                }
-            }
-            catch (Exception exception)
-            {
-                ReportError("Model download failed", exception);
-            }
-            finally
-            {
-                modelDownloadRunning = false;
-            }
-        }
-
-        private async Awaitable DownloadReplayAsync()
-        {
-            EmbodiedLabJob? activeJob = job;
-            QuickstartHistoryRecord? record = selectedHistoryRecord;
-            if (activeJob == null ||
-                record == null ||
-                lifetimeCancellation == null ||
-                historyStore == null ||
-                worldBuilder == null ||
-                replayPlayer == null)
-            {
-                return;
-            }
-
-            QuickstartReplayPlayer activeReplayPlayer = replayPlayer;
-            replayDownloadRunning = true;
-            try
-            {
-                activityText = "Refreshing the completed job before replay download...";
-                ResultDocument refreshed = await activeJob.RefreshAsync(
-                    lifetimeCancellation.Token);
-                if (!IsSelectedJob(activeJob, record))
-                {
-                    return;
-                }
-
-                ApplyResult(refreshed);
-                if (refreshed.Status != ResultStatus.Completed)
-                {
-                    throw new InvalidOperationException(
-                        "Replay download requires a completed cloud job.");
-                }
-
-                string manifestPath = QuickstartLocalPaths.GetReplayManifestPath(
-                    Application.persistentDataPath,
-                    activeJob.SubmissionId);
-                Directory.CreateDirectory(
-                    Path.GetDirectoryName(manifestPath) ?? throw new InvalidOperationException(
-                        "Replay manifest directory is unavailable."));
-
-                activityText = "Downloading replay manifest...";
-                await activeJob.DownloadReplayBundleAsync(
-                    manifestPath,
-                    lifetimeCancellation.Token);
-                if (!IsSelectedJob(activeJob, record))
-                {
-                    return;
-                }
-
-                (
-                    ReplayBundleManifest manifest,
-                    ReplayBundleChunk selectedChunk,
-                    string chunkPath) = ResolveReplaySelection(record, manifestPath);
-                Directory.CreateDirectory(
-                    Path.GetDirectoryName(chunkPath) ?? throw new InvalidOperationException(
-                        "Replay chunk directory is unavailable."));
-
-                activityText = $"Downloading replay chunk {selectedChunk.Path}...";
-                await activeJob.DownloadReplayChunkAsync(
-                    selectedChunk,
-                    chunkPath,
-                    lifetimeCancellation.Token);
-                if (!IsSelectedJob(activeJob, record))
-                {
-                    return;
-                }
-
-                LoadReplayChunk(record, manifest, selectedChunk, chunkPath);
-
-                record.LocalReplayManifestPath = manifestPath;
-                record.LocalReplayChunkPath = chunkPath;
-                selectedHistoryRecordDirty = true;
-                TryPersistHistoryRecord(record);
-                activityText = "Replay downloaded and ready.";
-            }
-            catch (OperationCanceledException)
-            {
-                if (!destroyed)
-                {
-                    activityText = "The local replay download stopped.";
-                }
-            }
-            catch (Exception exception)
-            {
-                activeReplayPlayer.Clear();
-                ReportError("Replay download failed", exception);
-            }
-            finally
-            {
-                replayDownloadRunning = false;
-            }
-        }
-
-        private void TryLoadPersistedReplay(QuickstartHistoryRecord record)
-        {
-            if (replayPlayer == null ||
-                string.IsNullOrWhiteSpace(record.LocalReplayManifestPath) ||
-                string.IsNullOrWhiteSpace(record.LocalReplayChunkPath))
-            {
-                return;
-            }
-
-            try
-            {
-                string expectedManifestPath = QuickstartLocalPaths.GetReplayManifestPath(
-                    Application.persistentDataPath,
-                    record.SubmissionId);
-                if (!PathsEqual(expectedManifestPath, record.LocalReplayManifestPath))
-                {
-                    throw new InvalidDataException(
-                        "Saved replay manifest path is outside Quickstart storage.");
-                }
-
-                (
-                    ReplayBundleManifest manifest,
-                    ReplayBundleChunk selectedChunk,
-                    string expectedChunkPath) =
-                    ResolveReplaySelection(record, expectedManifestPath);
-                if (!PathsEqual(expectedChunkPath, record.LocalReplayChunkPath))
-                {
-                    throw new InvalidDataException(
-                        "Saved replay chunk path does not match the selected manifest chunk.");
-                }
-
-                LoadReplayChunk(record, manifest, selectedChunk, expectedChunkPath);
-                activityText = "Saved replay loaded and ready.";
-            }
-            catch (Exception exception)
-            {
-                replayPlayer.Clear();
-                activityText = $"Saved replay unavailable: {exception.Message}";
-                Debug.LogException(exception, this);
-            }
-        }
-
-        private static (
-            ReplayBundleManifest Manifest,
-            ReplayBundleChunk SelectedChunk,
-            string ChunkPath) ResolveReplaySelection(
-                QuickstartHistoryRecord record,
-                string manifestPath)
-        {
-            ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(manifestPath);
-            ValidateReplayManifest(record, manifest);
-            ReplayBundleChunk selectedChunk =
-                QuickstartReplayTimeline.SelectLatestDeterministicEvaluationChunk(
-                    manifest);
-            string chunkPath = QuickstartLocalPaths.GetReplayChunkPath(
-                Application.persistentDataPath,
-                record.SubmissionId,
-                selectedChunk.Path);
-            return (manifest, selectedChunk, chunkPath);
-        }
-
-        private void LoadReplayChunk(
-            QuickstartHistoryRecord record,
-            ReplayBundleManifest manifest,
-            ReplayBundleChunk selectedChunk,
-            string chunkPath)
-        {
-            IReadOnlyList<ReplayLogStep> steps = EmbodiedLabReplay.ReadSteps(chunkPath);
-            QuickstartReplayTimeline.ValidateSelectedChunkSteps(
-                record.SubmissionId,
-                manifest.ScenarioId,
-                selectedChunk,
-                steps);
-            LoadReplay(selectedChunk, steps);
-        }
-
-        private void LoadReplay(
-            ReplayBundleChunk selectedChunk,
-            IReadOnlyList<ReplayLogStep> steps)
-        {
-            Transform robot = worldBuilder?.RobotTransform ??
-                throw new InvalidOperationException(
-                    "The shared Quickstart robot is unavailable.");
-            QuickstartReplayPlayer player = replayPlayer ??
-                throw new InvalidOperationException("Replay player is unavailable.");
-            player.Load(robot, steps, selectedChunk.Path);
-        }
-
-        private static void ValidateReplayManifest(
-            QuickstartHistoryRecord record,
-            ReplayBundleManifest manifest)
-        {
-            if (!string.Equals(
-                manifest.JobId,
-                record.SubmissionId,
-                StringComparison.Ordinal))
-            {
-                throw new InvalidDataException(
-                    "Replay manifest belongs to a different submission.");
-            }
-
-            ScenarioBundle scenario = ScenarioBundleJson.Deserialize(record.ScenarioJson);
-            if (!string.Equals(
-                manifest.ScenarioId,
-                scenario.ScenarioId,
-                StringComparison.Ordinal))
-            {
-                throw new InvalidDataException(
-                    "Replay manifest belongs to a different scenario.");
-            }
-        }
-
-        private bool IsSelectedJob(
-            EmbodiedLabJob activeJob,
-            QuickstartHistoryRecord record)
-        {
-            return !destroyed &&
-                ReferenceEquals(job, activeJob) &&
-                ReferenceEquals(selectedHistoryRecord, record);
-        }
-
-        private static bool PathsEqual(string left, string right)
-        {
-            return string.Equals(
-                Path.GetFullPath(left),
-                Path.GetFullPath(right),
-                StringComparison.OrdinalIgnoreCase);
-        }
-
-        private bool HasRunnableSelectedModel()
-        {
-            QuickstartHistoryRecord? record = selectedHistoryRecord;
-            if (record == null || string.IsNullOrWhiteSpace(record.LocalOnnxPath))
-            {
-                return false;
-            }
-
-            try
-            {
-                string expected = QuickstartLocalPaths.GetModelPath(
-                    Application.persistentDataPath,
-                    record.SubmissionId);
-                return PathsEqual(expected, record.LocalOnnxPath) && File.Exists(expected);
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-        }
-
-        private void HandleResultUpdated(ResultDocument result)
-        {
-            ApplyResult(result);
+            submissionIdText = submissionId;
+            jobStatusText = ResultStatus.Queued.ToString();
+            progressText = "Waiting for the trainer to start.";
         }
 
         private void ApplyResult(ResultDocument result)
         {
-            QuickstartHistoryRecord? record = selectedHistoryRecord;
-            if (record == null ||
-                !string.Equals(record.SubmissionId, result.SubmissionId, StringComparison.Ordinal))
+            EmbodiedLabJob? currentJob = cloudJob?.Job;
+            if (currentJob == null ||
+                !string.Equals(
+                    currentJob.SubmissionId,
+                    result.SubmissionId,
+                    StringComparison.Ordinal))
             {
                 return;
             }
 
-            bool changed = record.ApplyResult(result);
-            selectedHistoryRecordDirty |= changed;
-            if (changed || selectedHistoryRecordDirty)
-            {
-                TryPersistHistoryRecord(record);
-            }
-
             submissionIdText = result.SubmissionId;
             jobStatusText = result.Status.ToString();
-            progressText = FormatProgress(result.Progress);
+            progressText = QuickstartProgressText.Format(result.Status, result.Progress);
             activityText = result.Status switch
             {
                 ResultStatus.Completed => "Training completed.",
@@ -1131,328 +301,107 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 activityText = $"{activityText} {result.Error}";
             }
 
-            if (record.IsTerminal)
+            if (currentJob.IsTerminal)
             {
-                cancellationConfirmationArmed = false;
+                cloudCancellationArmed = false;
             }
         }
 
-        private static string FormatProgress(Progress? progress)
-        {
-            return progress == null
-                ? "-"
-                : $"{progress.Phase}: {progress.CurrentStep}/{progress.TotalSteps} " +
-                    progress.Message;
-        }
-
-        private void ApplyHistoryRecord(QuickstartHistoryRecord record)
-        {
-            submissionIdText = record.SubmissionId;
-            jobStatusText = record.Status.ToString();
-            progressText = FormatProgress(record.Progress);
-            modelPathText = record.LocalOnnxPath ?? "-";
-            activeTargetText = FormatCloudTarget(record.ApiBaseUrl, record.SubmissionId);
-        }
-
-        private void TryLoadHistory()
-        {
-            try
-            {
-                historyStore?.Load();
-            }
-            catch (Exception exception)
-            {
-                historyStorageText = "Unavailable. Existing history was not loaded.";
-                ReportError("Local history load failed", exception);
-            }
-        }
-
-        private void TryBuildBundledScenario()
+        private void TryBuildScenario()
         {
             if (scenarioJson == null || worldBuilder == null)
             {
+                activityText = "The tutorial scenario asset is not assigned.";
                 return;
             }
 
             try
             {
-                ClearReplayForModeChange();
-                ScenarioBundle scenario = ScenarioBundleJson.Deserialize(scenarioJson.text);
+                scenario = ScenarioBundleJson.Deserialize(scenarioJson.text);
                 worldBuilder.Build(scenario);
                 CreateInferenceRunner();
+                activityText = "Fixed scenario loaded.";
             }
             catch (Exception exception)
             {
+                scenario = null;
                 worldBuilder.Dispose();
-                ReportError("Bundled scenario display failed", exception);
+                ReportError("Scenario display failed", exception);
             }
-        }
-
-        private void TryBuildWorld(ScenarioBundle scenario)
-        {
-            try
-            {
-                ClearReplayForModeChange();
-                worldBuilder?.Build(scenario);
-                CreateInferenceRunner();
-            }
-            catch (Exception exception)
-            {
-                worldBuilder?.Dispose();
-                ReportError("Scenario display failed; cloud monitoring remains active", exception);
-            }
-        }
-
-        private void TryPersistHistoryRecord(
-            QuickstartHistoryRecord record,
-            bool reportFailure = true)
-        {
-            if (historyStore == null)
-            {
-                historyStorageText = "Unavailable. History storage is not initialized.";
-                return;
-            }
-
-            try
-            {
-                historyStore.Upsert(record);
-                if (ReferenceEquals(record, selectedHistoryRecord))
-                {
-                    selectedHistoryRecordDirty = false;
-                    nextHistorySaveRetryAtUtc = DateTimeOffset.MinValue;
-                }
-
-                historyStorageText = "Saved locally.";
-            }
-            catch (Exception exception)
-            {
-                if (ReferenceEquals(record, selectedHistoryRecord))
-                {
-                    selectedHistoryRecordDirty = true;
-                    nextHistorySaveRetryAtUtc = DateTimeOffset.UtcNow.AddSeconds(2);
-                }
-
-                historyStorageText =
-                    "Save failed. Keep this scene open to retain the active job handle.";
-                if (reportFailure)
-                {
-                    ReportError(
-                        "Local history save failed; cloud monitoring remains active",
-                        exception);
-                }
-            }
-        }
-
-        private void RetryDirtyHistory()
-        {
-            if (!selectedHistoryRecordDirty ||
-                selectedHistoryRecord == null ||
-                DateTimeOffset.UtcNow < nextHistorySaveRetryAtUtc)
-            {
-                return;
-            }
-
-            TryPersistHistoryRecord(selectedHistoryRecord, reportFailure: false);
-        }
-
-        private void TryPersistDetachedHistoryRecord(QuickstartHistoryRecord record)
-        {
-            try
-            {
-                historyStore?.Upsert(record);
-            }
-            catch (Exception exception)
-            {
-                Debug.LogException(exception, this);
-            }
-        }
-
-        private void AttachJob(EmbodiedLabJob nextJob)
-        {
-            StopCurrentJob();
-            job = nextJob;
-            job.ResultUpdated += HandleResultUpdated;
-            cancellationConfirmationArmed = false;
-        }
-
-        private (CancellationToken Token, int Generation) StartMonitor()
-        {
-            if (lifetimeCancellation == null)
-            {
-                throw new InvalidOperationException("Quickstart lifetime has ended.");
-            }
-
-            monitorCancellation?.Cancel();
-            monitorCancellation?.Dispose();
-            monitorCancellation = CancellationTokenSource.CreateLinkedTokenSource(
-                lifetimeCancellation.Token);
-            monitorRunning = true;
-            int generation = ++monitorGeneration;
-            return (monitorCancellation.Token, generation);
-        }
-
-        private void FinishMonitor(int generation)
-        {
-            if (generation >= 0 && generation == monitorGeneration)
-            {
-                monitorRunning = false;
-            }
-        }
-
-        private void StopCurrentJob()
-        {
-            monitorGeneration++;
-            monitorRunning = false;
-            monitorCancellation?.Cancel();
-            monitorCancellation?.Dispose();
-            monitorCancellation = null;
-            if (job == null)
-            {
-                return;
-            }
-
-            job.ResultUpdated -= HandleResultUpdated;
-            job.Dispose();
-            job = null;
-        }
-
-        private void ClearReplayForModeChange()
-        {
-            modeCoordinator?.Clear();
-            inferenceRunner?.Dispose();
-            inferenceRunner = null;
-            replayPlayer?.Clear();
         }
 
         private void CreateInferenceRunner()
         {
             QuickstartWorldBuilder activeWorld = worldBuilder ??
-                throw new InvalidOperationException("Quickstart world is unavailable.");
+                throw new InvalidOperationException("Tutorial world is unavailable.");
             inferenceRunner?.Dispose();
             inferenceRunner = new QuickstartInferenceRunner(activeWorld);
         }
 
-        private void DrawCloudCancellation()
+        private void ResetTutorialResult()
         {
-            if (!cancellationConfirmationArmed)
-            {
-                DrawButton("Cancel Cloud Job", CanCancel(), ArmCloudCancellation);
-                return;
-            }
-
-            GUILayout.Label(
-                $"Cloud cancellation target: {activeTargetText}",
-                bodyStyle);
-            DrawButton(
-                "Confirm: Cancel Active Cloud Job",
-                CanCancel(),
-                StartCloudCancellation);
-            DrawButton("Keep Cloud Job Running", true, DisarmCloudCancellation);
+            StopResultExecution();
+            replayPlayer?.Clear();
+            CreateInferenceRunner();
+            artifacts?.Reset();
         }
 
-        private bool CanSelectHistory()
+        private void StopResultExecution()
         {
-            return !submissionRequestRunning &&
-                !restoreRunning &&
-                !cancelRequestRunning &&
-                !modelDownloadRunning &&
-                !replayDownloadRunning &&
-                !selectedHistoryRecordDirty;
+            replayPlayer?.Stop();
+            inferenceRunner?.Stop();
         }
 
-        private bool CanChangeHistory()
+        private void Subscribe()
         {
-            return CanSelectHistory() && !cancellationConfirmationArmed;
-        }
-
-        private static string FormatCloudTarget(string apiUrl, string submissionId)
-        {
-            return Uri.TryCreate(apiUrl, UriKind.Absolute, out Uri? uri)
-                ? $"{uri.Scheme}://{uri.Authority} | {submissionId}"
-                : $"{apiUrl} | {submissionId}";
-        }
-
-        private static string GetRemovalWarning(QuickstartHistoryRecord record)
-        {
-            string baseWarning =
-                "This removes only the local history record. It does not cancel the cloud job " +
-                "or delete downloaded files.";
-            if (record.IsTerminal || string.IsNullOrWhiteSpace(record.CancelToken))
-            {
-                return baseWarning;
-            }
-
-            return baseWarning +
-                " This active job will keep running, and its cancellation capability will be " +
-                $"permanently lost for {FormatCloudTarget(record.ApiBaseUrl, record.SubmissionId)}.";
-        }
-
-        private void ArmRecordRemoval()
-        {
-            cancellationConfirmationArmed = false;
-            removalConfirmationArmed = true;
-            activityText = "Confirm local history removal below.";
-        }
-
-        private void DisarmRecordRemoval()
-        {
-            removalConfirmationArmed = false;
-            activityText = "Local history record kept.";
-        }
-
-        private void ConfirmRecordRemoval()
-        {
-            QuickstartHistoryRecord? record = selectedHistoryRecord;
-            if (record == null || historyStore == null)
+            if (cloudJob == null || artifacts == null)
             {
                 return;
             }
 
-            ClearReplayForModeChange();
-
-            try
-            {
-                historyStore.Remove(record.SubmissionId);
-            }
-            catch (Exception exception)
-            {
-                historyStorageText = "Removal was not saved; the record was kept.";
-                removalConfirmationArmed = false;
-                ReportError("Local history removal failed", exception);
-                return;
-            }
-
-            if (job != null &&
-                string.Equals(job.SubmissionId, record.SubmissionId, StringComparison.Ordinal))
-            {
-                // Disposing the local handle never cancels or deletes the cloud job.
-                StopCurrentJob();
-            }
-
-            selectedHistoryRecord = null;
-            selectedHistoryRecordDirty = false;
-            nextHistorySaveRetryAtUtc = DateTimeOffset.MinValue;
-            cancellationConfirmationArmed = false;
-            removalConfirmationArmed = false;
-            submissionIdText = "Not selected";
-            jobStatusText = "Not selected";
-            progressText = "-";
-            modelPathText = "-";
-            activeTargetText = "-";
-            historyStorageText = "Saved locally.";
-            activityText =
-                "Local history removed. Cloud jobs and downloaded files were not changed.";
+            cloudJob.ActivityChanged += SetActivity;
+            cloudJob.Failed += ReportError;
+            cloudJob.ResultUpdated += ApplyResult;
+            cloudJob.SubmissionStarted += HandleSubmissionStarted;
+            artifacts.ActivityChanged += SetActivity;
+            artifacts.Failed += ReportError;
+            artifacts.ResultRefreshed += ApplyResult;
         }
 
-        private void ReportError(string operation, Exception exception)
+        private void Unsubscribe()
+        {
+            if (cloudJob != null)
+            {
+                cloudJob.ActivityChanged -= SetActivity;
+                cloudJob.Failed -= ReportError;
+                cloudJob.ResultUpdated -= ApplyResult;
+                cloudJob.SubmissionStarted -= HandleSubmissionStarted;
+            }
+
+            if (artifacts != null)
+            {
+                artifacts.ActivityChanged -= SetActivity;
+                artifacts.Failed -= ReportError;
+                artifacts.ResultRefreshed -= ApplyResult;
+            }
+        }
+
+        private void SetActivity(string message)
+        {
+            if (!destroyed)
+            {
+                activityText = message;
+            }
+        }
+
+        private void ReportError(string operationName, Exception exception)
         {
             if (destroyed)
             {
                 return;
             }
 
-            activityText = $"{operation}: {exception.Message}";
-            logOverlay?.Add(activityText, QuickstartLogLevel.Error);
+            activityText = $"{operationName}: {exception.Message}";
             Debug.LogException(exception, this);
         }
     }
