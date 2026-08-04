@@ -29,8 +29,9 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
     internal sealed class QuickstartLogOverlay
     {
         internal const int MaximumEntries = 7;
+        internal const int FontSize = 28;
 
-        private const float LineHeight = 20f;
+        private const float LineHeight = 36f;
         private readonly List<QuickstartLogEntry> entries = new(MaximumEntries);
         private GUIStyle? labelStyle;
 
@@ -68,7 +69,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         {
             labelStyle ??= new GUIStyle(GUI.skin.label)
             {
-                fontSize = 14,
+                fontSize = FontSize,
                 clipping = TextClipping.Clip,
             };
             Color previousColor = GUI.color;

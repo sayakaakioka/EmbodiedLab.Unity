@@ -14,6 +14,17 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
     [DisallowMultipleComponent]
     public sealed class QuickstartController : MonoBehaviour
     {
+        private const int TitleFontSize = 44;
+        private const int SectionFontSize = 36;
+        private const int BodyFontSize = 30;
+        private const float PanelLeft = 40f;
+        private const float PanelTop = 300f;
+        private const float PanelMaximumWidth = 1040f;
+        private const float PanelBottomMargin = 40f;
+        private const float FieldLabelWidth = 300f;
+        private const float ButtonHeight = 60f;
+        private const float TextFieldHeight = 56f;
+
         [SerializeField]
         private string apiBaseUrl = "https://api.example.com/";
 
@@ -33,7 +44,14 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private QuickstartLogOverlay? logOverlay;
         private QuickstartHistoryRecord? selectedHistoryRecord;
         private EmbodiedLabJob? job;
+        private Vector2 panelScrollPosition;
         private Vector2 historyScrollPosition;
+        private GUIStyle panelStyle = null!;
+        private GUIStyle titleStyle = null!;
+        private GUIStyle sectionStyle = null!;
+        private GUIStyle bodyStyle = null!;
+        private GUIStyle buttonStyle = null!;
+        private GUIStyle textFieldStyle = null!;
         private bool destroyed;
         private bool submissionRequestRunning;
         private bool monitorRunning;
@@ -44,6 +62,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private bool cancellationConfirmationArmed;
         private bool removalConfirmationArmed;
         private bool selectedHistoryRecordDirty;
+        private bool showAdvanced;
         private int monitorGeneration;
         private DateTimeOffset nextHistorySaveRetryAtUtc = DateTimeOffset.MinValue;
         private string submissionIdText = "Not submitted";
@@ -78,10 +97,22 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         {
             RetryDirtyHistory();
             logOverlay?.Add(activityText);
-            GUILayout.BeginArea(new Rect(20, 170, 760, 750), GUI.skin.box);
-            GUILayout.Label("EmbodiedLab Quickstart");
-            GUILayout.Space(8);
+            EnsureGuiStyles();
+            float panelWidth = Mathf.Min(PanelMaximumWidth, Screen.width - (PanelLeft * 2f));
+            float panelHeight = Mathf.Max(
+                360f,
+                Screen.height - PanelTop - PanelBottomMargin);
+            GUILayout.BeginArea(
+                new Rect(PanelLeft, PanelTop, panelWidth, panelHeight),
+                panelStyle);
+            panelScrollPosition = GUILayout.BeginScrollView(panelScrollPosition);
+            GUILayout.Label("EmbodiedLab Quickstart", titleStyle);
+            GUILayout.Label(
+                "Submit a fixed scenario, wait for training, then try the result.",
+                bodyStyle);
+            GUILayout.Space(16);
 
+            GUILayout.Label("1. Connect", sectionStyle);
             DrawTextField("API base URL", ref apiBaseUrl);
             DrawTextField("Result WebSocket URL", ref resultWebSocketBaseUrl);
 
@@ -89,51 +120,57 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 UsesExampleEndpoint(resultWebSocketBaseUrl))
             {
                 GUILayout.Label(
-                    "Replace both example endpoints with your EmbodiedLab deployment.");
+                    "Replace both example endpoints with your EmbodiedLab deployment.",
+                    bodyStyle);
             }
 
             if (scenarioJson == null)
             {
-                GUILayout.Label("The fixed scenario asset is not assigned.");
+                GUILayout.Label("The fixed scenario asset is not assigned.", bodyStyle);
             }
 
-            GUILayout.Space(8);
+            GUILayout.Space(16);
+            GUILayout.Label("2. Train", sectionStyle);
             DrawButton("Submit and Train", CanSubmit(), StartSubmission);
-            DrawCloudCancellation();
-            DrawButton("Download Model", CanDownloadModel(), StartModelDownload);
-            DrawButton("Download Replay", CanDownloadReplay(), StartReplayDownload);
-            DrawButton("Play Replay", CanPlayReplay(), StartReplayPlayback);
-            DrawButton("Stop Replay", CanStopReplay(), StopReplayPlayback);
-            DrawButton("Run Inference", CanRunInference(), StartInference);
-            DrawButton("Stop Inference", CanStopInference(), StopInference);
-
-            GUILayout.Space(12);
-            DrawValue("Submission ID", submissionIdText);
-            DrawValue("Active cloud target", activeTargetText);
             DrawValue("Job status", jobStatusText);
             DrawValue("Progress", progressText);
             DrawValue("Activity", activityText);
-            DrawValue("Downloaded model", modelPathText);
-            DrawValue("Replay chunk", replayPlayer?.SelectedChunk ?? "-");
-            DrawValue("Replay episode", replayPlayer?.CurrentEpisode ?? "-");
-            DrawValue("Replay step", replayPlayer?.CurrentStep ?? "-");
-            DrawValue("Replay status", replayPlayer?.Status ?? "Unavailable");
-            DrawValue("Inference status", inferenceRunner?.Status ?? "Unavailable");
-            DrawValue(
-                "Observation",
-                inferenceRunner?.ObservationStatus ?? "-");
-            DrawValue("Action", inferenceRunner?.ActionStatus ?? "-");
-            DrawValue("History storage", historyStorageText);
 
-            GUILayout.Space(12);
-            DrawHistory();
+            GUILayout.Space(16);
+            GUILayout.Label("3. Try the result", sectionStyle);
+            DrawButton("Download Model", CanDownloadModel(), StartModelDownload);
+            DrawButton("Run Inference", CanRunInference(), StartInference);
+            if (CanStopInference())
+            {
+                DrawButton("Stop Inference", true, StopInference);
+            }
 
             GUILayout.Space(8);
+            DrawButton("Download Replay", CanDownloadReplay(), StartReplayDownload);
+            DrawButton("Play Replay", CanPlayReplay(), StartReplayPlayback);
+            if (replayPlayer?.IsPlaying == true)
+            {
+                DrawButton("Stop Replay", true, StopReplayPlayback);
+            }
+
+            GUILayout.Space(20);
+            string advancedLabel = showAdvanced
+                ? "Hide Advanced"
+                : "Show Advanced";
+            DrawButton(advancedLabel, true, () => showAdvanced = !showAdvanced);
+            if (showAdvanced)
+            {
+                DrawAdvanced();
+            }
+
+            GUILayout.Space(16);
             GUILayout.Label(
                 "Local cancellation stops this sample only. Use Cancel Cloud Job " +
-                "to stop the remote training job.");
+                "to stop the remote training job.",
+                bodyStyle);
+            GUILayout.EndScrollView();
             GUILayout.EndArea();
-            logOverlay?.Draw(12f, 12f, 760f);
+            logOverlay?.Draw(PanelLeft, 20f, PanelMaximumWidth);
         }
 
         private void Update()
@@ -152,7 +189,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
             lifetimeCancellation?.Cancel();
             StopCurrentJob();
-            inferenceRunner?.Dispose();
+            inferenceRunner?.DisposeWithoutReset();
             inferenceRunner = null;
             modeCoordinator = null;
             logOverlay = null;
@@ -164,19 +201,60 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             lifetimeCancellation = null;
         }
 
-        private static void DrawTextField(string label, ref string value)
+        private void EnsureGuiStyles()
+        {
+            if (panelStyle != null)
+            {
+                return;
+            }
+
+            panelStyle = new GUIStyle(GUI.skin.box)
+            {
+                padding = new RectOffset(24, 24, 24, 24),
+            };
+            titleStyle = CreateLabelStyle(TitleFontSize, FontStyle.Bold);
+            sectionStyle = CreateLabelStyle(SectionFontSize, FontStyle.Bold);
+            bodyStyle = CreateLabelStyle(BodyFontSize, FontStyle.Normal);
+            buttonStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontSize = BodyFontSize,
+                fontStyle = FontStyle.Bold,
+                fixedHeight = ButtonHeight,
+                wordWrap = true,
+            };
+            textFieldStyle = new GUIStyle(GUI.skin.textField)
+            {
+                fontSize = BodyFontSize,
+                fixedHeight = TextFieldHeight,
+            };
+        }
+
+        private static GUIStyle CreateLabelStyle(int fontSize, FontStyle fontStyle)
+        {
+            return new GUIStyle(GUI.skin.label)
+            {
+                fontSize = fontSize,
+                fontStyle = fontStyle,
+                wordWrap = true,
+            };
+        }
+
+        private void DrawTextField(string label, ref string value)
         {
             GUILayout.BeginHorizontal();
-            GUILayout.Label(label, GUILayout.Width(180));
-            value = GUILayout.TextField(value);
+            GUILayout.Label(label, bodyStyle, GUILayout.Width(FieldLabelWidth));
+            value = GUILayout.TextField(
+                value,
+                textFieldStyle,
+                GUILayout.Height(TextFieldHeight));
             GUILayout.EndHorizontal();
         }
 
-        private static void DrawButton(string label, bool enabled, Action action)
+        private void DrawButton(string label, bool enabled, Action action)
         {
             bool previousEnabled = GUI.enabled;
             GUI.enabled = previousEnabled && enabled;
-            if (GUILayout.Button(label))
+            if (GUILayout.Button(label, buttonStyle, GUILayout.Height(ButtonHeight)))
             {
                 action();
             }
@@ -184,20 +262,48 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             GUI.enabled = previousEnabled;
         }
 
-        private static void DrawValue(string label, string value)
+        private void DrawValue(string label, string value)
         {
             GUILayout.BeginHorizontal();
-            GUILayout.Label(label, GUILayout.Width(180));
-            GUILayout.Label(value);
+            GUILayout.Label(label, bodyStyle, GUILayout.Width(FieldLabelWidth));
+            GUILayout.Label(value, bodyStyle);
             GUILayout.EndHorizontal();
+        }
+
+        private void DrawAdvanced()
+        {
+            GUILayout.Space(16);
+            GUILayout.Label("Cloud and local controls", sectionStyle);
+            DrawCloudCancellation();
+            DrawButton("Stop Replay and Reset", CanStopReplay(), StopReplayPlayback);
+            DrawButton("Stop Inference and Reset", CanStopInference(), StopInference);
+
+            GUILayout.Space(16);
+            GUILayout.Label("Details", sectionStyle);
+            DrawValue("Submission ID", submissionIdText);
+            DrawValue("Active cloud target", activeTargetText);
+            DrawValue("Downloaded model", modelPathText);
+            DrawValue("Replay chunk", replayPlayer?.SelectedChunk ?? "-");
+            DrawValue("Replay episode", replayPlayer?.CurrentEpisode ?? "-");
+            DrawValue("Replay step", replayPlayer?.CurrentStep ?? "-");
+            DrawValue("Replay status", replayPlayer?.Status ?? "Unavailable");
+            DrawValue("Inference status", inferenceRunner?.Status ?? "Unavailable");
+            DrawValue(
+                "Observation",
+                inferenceRunner?.ObservationStatus ?? "-");
+            DrawValue("Action", inferenceRunner?.ActionStatus ?? "-");
+            DrawValue("History storage", historyStorageText);
+
+            GUILayout.Space(16);
+            DrawHistory();
         }
 
         private void DrawHistory()
         {
-            GUILayout.Label("Local history (newest first)");
+            GUILayout.Label("Local history (newest first)", sectionStyle);
             if (historyStore == null || historyStore.Records.Count == 0)
             {
-                GUILayout.Label("No saved jobs.");
+                GUILayout.Label("No saved jobs.", bodyStyle);
                 return;
             }
 
@@ -211,7 +317,10 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                     $"{marker} {record.SubmittedAtUtc} | {record.Status} | {record.SubmissionId}";
                 bool previousEnabled = GUI.enabled;
                 GUI.enabled = previousEnabled && CanSelectHistory();
-                if (GUILayout.Button(label))
+                if (GUILayout.Button(
+                        label,
+                        buttonStyle,
+                        GUILayout.Height(ButtonHeight)))
                 {
                     StartHistorySelection(record.SubmissionId);
                 }
@@ -235,7 +344,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 return;
             }
 
-            GUILayout.Label(GetRemovalWarning(selectedHistoryRecord));
+            GUILayout.Label(GetRemovalWarning(selectedHistoryRecord), bodyStyle);
             DrawButton(
                 "Confirm: Remove Local Record Only",
                 CanChangeHistory(),
@@ -791,15 +900,10 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                     return;
                 }
 
-                ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(manifestPath);
-                ValidateReplayManifest(record, manifest);
-                ReplayBundleChunk selectedChunk =
-                    QuickstartReplayTimeline.SelectLatestDeterministicEvaluationChunk(
-                        manifest);
-                string chunkPath = QuickstartLocalPaths.GetReplayChunkPath(
-                    Application.persistentDataPath,
-                    activeJob.SubmissionId,
-                    selectedChunk.Path);
+                (
+                    ReplayBundleManifest manifest,
+                    ReplayBundleChunk selectedChunk,
+                    string chunkPath) = ResolveReplaySelection(record, manifestPath);
                 Directory.CreateDirectory(
                     Path.GetDirectoryName(chunkPath) ?? throw new InvalidOperationException(
                         "Replay chunk directory is unavailable."));
@@ -814,13 +918,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                     return;
                 }
 
-                IReadOnlyList<ReplayLogStep> steps = EmbodiedLabReplay.ReadSteps(chunkPath);
-                QuickstartReplayTimeline.ValidateSelectedChunkSteps(
-                    activeJob.SubmissionId,
-                    manifest.ScenarioId,
-                    selectedChunk,
-                    steps);
-                LoadReplay(selectedChunk, steps);
+                LoadReplayChunk(record, manifest, selectedChunk, chunkPath);
 
                 record.LocalReplayManifestPath = manifestPath;
                 record.LocalReplayChunkPath = chunkPath;
@@ -866,30 +964,18 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                         "Saved replay manifest path is outside Quickstart storage.");
                 }
 
-                ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(
-                    expectedManifestPath);
-                ValidateReplayManifest(record, manifest);
-                ReplayBundleChunk selectedChunk =
-                    QuickstartReplayTimeline.SelectLatestDeterministicEvaluationChunk(
-                        manifest);
-                string expectedChunkPath = QuickstartLocalPaths.GetReplayChunkPath(
-                    Application.persistentDataPath,
-                    record.SubmissionId,
-                    selectedChunk.Path);
+                (
+                    ReplayBundleManifest manifest,
+                    ReplayBundleChunk selectedChunk,
+                    string expectedChunkPath) =
+                    ResolveReplaySelection(record, expectedManifestPath);
                 if (!PathsEqual(expectedChunkPath, record.LocalReplayChunkPath))
                 {
                     throw new InvalidDataException(
                         "Saved replay chunk path does not match the selected manifest chunk.");
                 }
 
-                IReadOnlyList<ReplayLogStep> steps = EmbodiedLabReplay.ReadSteps(
-                    expectedChunkPath);
-                QuickstartReplayTimeline.ValidateSelectedChunkSteps(
-                    record.SubmissionId,
-                    manifest.ScenarioId,
-                    selectedChunk,
-                    steps);
-                LoadReplay(selectedChunk, steps);
+                LoadReplayChunk(record, manifest, selectedChunk, expectedChunkPath);
                 activityText = "Saved replay loaded and ready.";
             }
             catch (Exception exception)
@@ -898,6 +984,40 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 activityText = $"Saved replay unavailable: {exception.Message}";
                 Debug.LogException(exception, this);
             }
+        }
+
+        private static (
+            ReplayBundleManifest Manifest,
+            ReplayBundleChunk SelectedChunk,
+            string ChunkPath) ResolveReplaySelection(
+                QuickstartHistoryRecord record,
+                string manifestPath)
+        {
+            ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(manifestPath);
+            ValidateReplayManifest(record, manifest);
+            ReplayBundleChunk selectedChunk =
+                QuickstartReplayTimeline.SelectLatestDeterministicEvaluationChunk(
+                    manifest);
+            string chunkPath = QuickstartLocalPaths.GetReplayChunkPath(
+                Application.persistentDataPath,
+                record.SubmissionId,
+                selectedChunk.Path);
+            return (manifest, selectedChunk, chunkPath);
+        }
+
+        private void LoadReplayChunk(
+            QuickstartHistoryRecord record,
+            ReplayBundleManifest manifest,
+            ReplayBundleChunk selectedChunk,
+            string chunkPath)
+        {
+            IReadOnlyList<ReplayLogStep> steps = EmbodiedLabReplay.ReadSteps(chunkPath);
+            QuickstartReplayTimeline.ValidateSelectedChunkSteps(
+                record.SubmissionId,
+                manifest.ScenarioId,
+                selectedChunk,
+                steps);
+            LoadReplay(selectedChunk, steps);
         }
 
         private void LoadReplay(
@@ -1220,7 +1340,9 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 return;
             }
 
-            GUILayout.Label($"Cloud cancellation target: {activeTargetText}");
+            GUILayout.Label(
+                $"Cloud cancellation target: {activeTargetText}",
+                bodyStyle);
             DrawButton(
                 "Confirm: Cancel Active Cloud Job",
                 CanCancel(),

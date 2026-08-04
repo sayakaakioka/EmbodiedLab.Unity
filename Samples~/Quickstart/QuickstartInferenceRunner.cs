@@ -112,6 +112,11 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             StopInternal("Inference: off", resetRobot: true);
         }
 
+        internal void DisposeWithoutReset()
+        {
+            StopInternal("Inference: off", resetRobot: false);
+        }
+
         private void Step()
         {
             try
@@ -217,7 +222,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             semanticCamera = null;
             policy?.Dispose();
             policy = null;
-            if (resetRobot)
+            if (resetRobot && robot != null)
             {
                 robot.SetPositionAndRotation(startPosition, startRotation);
                 Physics.SyncTransforms();
