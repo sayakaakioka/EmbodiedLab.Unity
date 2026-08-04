@@ -2,7 +2,7 @@
   "dependencies": {
     "com.embodiedlab.unity": "file:../../..",
     "com.unity.inputsystem": "1.17.0",
-    "com.unity.test-framework": "1.6.0"
+    "com.unity.test-framework": "1.1.33"
   },
   "testables": [
     "com.embodiedlab.unity"

@@ -13,8 +13,8 @@ The files are the exact binaries previously validated by EnvForge:
 | `Windows/x86_64/onnxruntime_providers_shared.dll` | `f2540b89707b47895c2a732bfd04e34a695c580d22301ef44c0f01f09b001673` |
 
 Unity importer metadata enables the native libraries only for Windows x64
-Editor and Windows x64 Standalone. Unity 6000.3.11f1 on Windows x64 is the only
-initially verified Unity target. The managed assembly may compile on other
+Editor and Windows x64 Standalone. Unity 2022.3.19f1 and 6000.3.11f1 on Windows
+x64 are the verified Unity targets. The managed assembly may compile on other
 targets, but this package does not provide their native runtime libraries and
 the Quickstart must not be presented as supported there.
 

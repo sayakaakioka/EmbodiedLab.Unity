@@ -3,16 +3,19 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
-
+from pathlib import Path
 
 TEST_ASSEMBLY = "EmbodiedLab.Unity.Editor.Tests"
 IMPORTED_SAMPLE_TEST_ASSEMBLY = "EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests"
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+VALIDATION_PROJECTS = {
+    "2022.3": Path("TestProjects~") / "Unity2022.3",
+    "6000.3": Path("TestProjects~") / "Unity6000.3",
+}
 SAMPLE_SOURCE_RELATIVE_PATH = Path("Samples~") / "Quickstart"
 IMPORTED_TESTS_SOURCE_RELATIVE_PATH = Path("Tests~") / "QuickstartImported"
 STAGING_ROOT_RELATIVE_PATH = Path("Assets") / "EmbodiedLabQuickstartValidation"
@@ -54,7 +57,13 @@ REQUIRED_TEST_NAMES = frozenset(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run EmbodiedLab.Unity package tests in Unity 6000.3."
+        description="Run EmbodiedLab.Unity package tests in a supported Unity version."
+    )
+    parser.add_argument(
+        "--unity-version",
+        choices=tuple(VALIDATION_PROJECTS),
+        default="6000.3",
+        help="Validation project to use. Defaults to 6000.3.",
     )
     parser.add_argument(
         "--unity-editor",
@@ -264,7 +273,7 @@ def main() -> int:
         print(f"Unity executable not found: {unity_editor}", file=sys.stderr)
         return 2
 
-    project_path = REPOSITORY_ROOT / "TestProjects~" / "Unity6000.3"
+    project_path = REPOSITORY_ROOT / VALIDATION_PROJECTS[args.unity_version]
     output_directory = (
         args.output_directory.expanduser().resolve()
         if args.output_directory

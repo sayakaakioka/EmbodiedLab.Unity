@@ -112,6 +112,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests
             Assert.That(
                 camera.orthographicSize,
                 Is.EqualTo(Math.Max(width, depth) * 0.62f).Within(Tolerance));
+            Assert.That(builder.OverviewCamera, Is.SameAs(camera));
 
             Transform lightTransform = FindRequired(root, "Tutorial Light");
             Light light = lightTransform.GetComponent<Light>();
@@ -143,6 +144,76 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests
 
             builder.Dispose();
             Assert.That(GameObject.Find("Canonical Navigation World"), Is.Null);
+        }
+
+        [Test]
+        public void TutorialLayoutSeparatesPanelAndWorldAtQhd()
+        {
+            Rect panel = QuickstartController.CalculatePanelRect(2560f, 1440f);
+            Rect viewport = QuickstartController.CalculateOverviewViewport(
+                panel,
+                2560f,
+                1440f);
+            float viewportLeft = viewport.xMin * 2560f;
+            float viewportRight = viewport.xMax * 2560f;
+            float viewportBottom = viewport.yMin * 1440f;
+            float viewportTop = viewport.yMax * 1440f;
+
+            Assert.That(panel.x, Is.EqualTo(40f).Within(Tolerance));
+            Assert.That(panel.width, Is.EqualTo(1040f).Within(Tolerance));
+            Assert.That(
+                viewportLeft,
+                Is.EqualTo(panel.xMax + 40f).Within(Tolerance));
+            Assert.That(viewportLeft, Is.GreaterThan(panel.xMax));
+            Assert.That(viewportRight, Is.EqualTo(2520f).Within(Tolerance));
+            Assert.That(viewportBottom, Is.EqualTo(40f).Within(Tolerance));
+            Assert.That(viewportTop, Is.EqualTo(1400f).Within(Tolerance));
+        }
+
+        [Test]
+        public void TutorialLayoutKeepsBothPanesVisibleAtNarrowWidth()
+        {
+            Rect panel = QuickstartController.CalculatePanelRect(800f, 600f);
+            Rect viewport = QuickstartController.CalculateOverviewViewport(
+                panel,
+                800f,
+                600f);
+            float viewportLeft = viewport.xMin * 800f;
+            float viewportWidth = viewport.width * 800f;
+
+            Assert.That(panel.width, Is.EqualTo(340f).Within(Tolerance));
+            Assert.That(
+                viewportLeft,
+                Is.EqualTo(panel.xMax + 40f).Within(Tolerance));
+            Assert.That(viewportWidth, Is.EqualTo(340f).Within(Tolerance));
+        }
+
+        [TestCase(2560f, 1440f)]
+        [TestCase(800f, 600f)]
+        public void OverviewCameraFitsCanonicalWorld(float screenWidth, float screenHeight)
+        {
+            ScenarioBundle scenario = LoadScenario();
+            using var builder = new QuickstartWorldBuilder();
+            builder.Build(scenario);
+            Rect panel = QuickstartController.CalculatePanelRect(screenWidth, screenHeight);
+            Rect viewport = QuickstartController.CalculateOverviewViewport(
+                panel,
+                screenWidth,
+                screenHeight);
+            float aspect = viewport.width * screenWidth / (viewport.height * screenHeight);
+
+            builder.FitOverviewCamera(aspect);
+
+            Camera camera = builder.OverviewCamera ??
+                throw new AssertionException("Overview camera was not created.");
+            float worldWidth = Convert.ToSingle(
+                scenario.World.Bounds.Max.X - scenario.World.Bounds.Min.X);
+            float worldDepth = Convert.ToSingle(
+                scenario.World.Bounds.Max.Z - scenario.World.Bounds.Min.Z);
+            Assert.That(camera.orthographicSize * 2f, Is.GreaterThan(worldDepth));
+            Assert.That(
+                camera.orthographicSize * 2f * aspect,
+                Is.GreaterThan(worldWidth));
         }
 
         [Test]
@@ -236,12 +307,10 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests
                     CreateReplayStep(1, 0.1d, -5d, -3d, 60d),
                 },
                 "eval/real-policy-transition.jsonl.gz");
-            var modes = new QuickstartModeCoordinator(replay.Stop, runner.Stop);
-            modes.EnterReplay();
             replay.Play();
             replay.Tick(0.05d);
             Assert.That(replay.IsPlaying, Is.True);
-            modes.EnterInference();
+            replay.Stop();
             Assert.That(replay.IsPlaying, Is.False);
 
             runner.Start(path);

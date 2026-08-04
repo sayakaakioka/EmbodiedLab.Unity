@@ -3,14 +3,16 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
-
+from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-PROJECT_PATH = REPOSITORY_ROOT / "TestProjects~" / "Unity6000.3"
+VALIDATION_PROJECTS = {
+    "2022.3": Path("TestProjects~") / "Unity2022.3",
+    "6000.3": Path("TestProjects~") / "Unity6000.3",
+}
 STAGING_ROOT = Path("Assets") / "EmbodiedLabQuickstartStandaloneValidation"
 
 
@@ -19,6 +21,12 @@ def parse_args() -> argparse.Namespace:
         description="Build and run the Quickstart Windows x64 ONNX smoke test."
     )
     parser.add_argument("--unity-editor", type=Path, required=True)
+    parser.add_argument(
+        "--unity-version",
+        choices=tuple(VALIDATION_PROJECTS),
+        default="6000.3",
+        help="Validation project to use. Defaults to 6000.3.",
+    )
     parser.add_argument("--policy", type=Path, required=True)
     parser.add_argument("--output-directory", type=Path, required=True)
     return parser.parse_args()
@@ -50,8 +58,8 @@ def remove_path(path: Path) -> None:
         shutil.rmtree(path)
 
 
-def stage_sources() -> None:
-    staging = PROJECT_PATH / STAGING_ROOT
+def stage_sources(project_path: Path) -> None:
+    staging = project_path / STAGING_ROOT
     remove_path(staging)
     remove_path(staging.with_name(f"{staging.name}.meta"))
     staging.mkdir(parents=True)
@@ -62,8 +70,8 @@ def stage_sources() -> None:
     )
 
 
-def cleanup_sources() -> None:
-    staging = PROJECT_PATH / STAGING_ROOT
+def cleanup_sources(project_path: Path) -> None:
+    staging = project_path / STAGING_ROOT
     remove_path(staging)
     remove_path(staging.with_name(f"{staging.name}.meta"))
 
@@ -77,6 +85,7 @@ def print_log_tail(path: Path, count: int = 100) -> None:
 def main() -> int:
     args = parse_args()
     unity_editor = args.unity_editor.expanduser().resolve()
+    project_path = REPOSITORY_ROOT / VALIDATION_PROJECTS[args.unity_version]
     policy = args.policy.expanduser().resolve()
     output = args.output_directory.expanduser().resolve()
     scenario = REPOSITORY_ROOT / "Samples~" / "Quickstart" / "NavigationScenario.json"
@@ -92,14 +101,14 @@ def main() -> int:
     result = output / "smoke-result.txt"
 
     try:
-        stage_sources()
+        stage_sources(project_path)
         build_command = [
             str(unity_editor),
             "-batchmode",
             "-quit",
             "-forgetProjectPath",
             "-projectPath",
-            mounted_windows_path(PROJECT_PATH),
+            mounted_windows_path(project_path),
             "-executeMethod",
             (
                 "EmbodiedLab.Unity.Samples.Quickstart.StandaloneSmoke.Editor."
@@ -156,7 +165,7 @@ def main() -> int:
         print(f"Windows x64 standalone smoke passed: {executable}")
         return 0
     finally:
-        cleanup_sources()
+        cleanup_sources(project_path)
 
 
 if __name__ == "__main__":

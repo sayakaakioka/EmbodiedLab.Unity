@@ -16,19 +16,20 @@ shared by EnvForge and custom Unity frontends. The first supported workflow is:
 - monitor its lifecycle;
 - download its result document, replay bundle, and trained model.
 
-Reusable Editor UI, application-level job history, and EnvForge-specific scene
-authoring remain in [EnvForge](https://github.com/sayakaakioka/EnvForge). The
-Quickstart includes sample-local history only to teach restore, monitoring, and
-replay artifact reuse.
+Reusable Editor UI, application-level job history, credential persistence, and
+EnvForge-specific scene authoring remain in
+[EnvForge](https://github.com/sayakaakioka/EnvForge). The package tutorial keeps
+one in-memory job and teaches restore as an explicit SDK operation instead of
+implementing a second application workflow.
 Server behavior and the source contract models remain in
 [EmbodiedLab](https://github.com/sayakaakioka/EmbodiedLab).
 
 ## Requirements
 
-- Unity 6000.3 or later
+- Unity 2022.3.19f1 or later
 - Git 2.14 or later when installing from a Git URL
 
-Direct ONNX inference in the Quickstart is initially verified only with Unity
+Direct ONNX inference in the tutorial is verified with Unity 2022.3.19f1 and
 6000.3.11f1 on Windows x64 Editor and Windows x64 Standalone. The package owns
 the required CPU ONNX Runtime 1.24.4 managed and native binaries; no separate
 ONNX Runtime or Sentis installation is required on that target.
@@ -44,25 +45,19 @@ https://github.com/sayakaakioka/EmbodiedLab.Unity.git
 
 The package identifier is `com.embodiedlab.unity`.
 
-## Import the Quickstart sample
+## Import the tutorial
 
 In Package Manager, select **EmbodiedLab Unity SDK**, open the **Samples** tab,
-and import **Quickstart**. Then open
-`Assets/Samples/EmbodiedLab Unity SDK/0.1.0/Quickstart/Quickstart.unity`
+and import **Tutorial**. Then open
+`Assets/Samples/EmbodiedLab Unity SDK/0.1.0/Tutorial/Quickstart.unity`
 and enter the API and result WebSocket base URLs in Play Mode.
 
-The sample builds a visible navigation world from the exact included scenario,
-submits it, displays WebSocket result updates, requests cloud cancellation, and
-downloads a completed ONNX model under `Application.persistentDataPath`. Its
-sample-local history restores prior jobs and resumes monitoring across restarts.
-For a completed record, **Download Replay** retrieves the manifest and only its
-latest deterministic evaluation chunk. **Play Replay** drives the same visible
-robot from replay time, and **Stop Replay** resets it to the first loaded step.
-**Run Inference** loads the selected downloaded `policy.onnx`, observes the same
-world through the robot's semantic camera, and moves that same robot. **Stop
-Inference** releases ONNX Runtime resources and resets the robot to the submitted
-start pose. Replay and inference are mutually exclusive. The sample intentionally
-does not include EnvForge's scene authoring or reusable history UI.
+The tutorial has six ordered sections: load the exact scenario, configure
+endpoints, submit and monitor one job, download artifacts, play the deterministic
+evaluation replay, and run the downloaded ONNX policy on Windows x64. Each
+responsibility lives in a small sample-internal file. Replay and inference use
+the same visible robot and are mutually exclusive. The tutorial intentionally
+does not include EnvForge's scene authoring, job history, or credential store.
 
 ## Quick start
 
@@ -72,11 +67,11 @@ submit it through the stateful job handle:
 ```csharp
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 using EmbodiedLab.Contracts;
 using EmbodiedLab.Unity;
-using UnityEngine;
 
-public async Awaitable RunTrainingAsync(
+public async Task RunTrainingAsync(
     ScenarioBundle scenario,
     CancellationToken cancellationToken)
 {
@@ -230,10 +225,15 @@ layer. They retain Newtonsoft.Json wire-name, enum, and discriminator metadata,
 but intentionally omit `DataAnnotations`. DTOs store only declared fields unless
 the upstream schema explicitly enables additional properties.
 
-Run the local Unity 6000.3 validation with:
+Run the local validation in both supported Unity baselines with:
 
 ```bash
-python3 Tools~/run_unity_tests.py --unity-editor <path-to-unity-6000.3.11f1>
+python3 Tools~/run_unity_tests.py \
+  --unity-version 2022.3 \
+  --unity-editor <path-to-unity-2022.3.19f1>
+python3 Tools~/run_unity_tests.py \
+  --unity-version 6000.3 \
+  --unity-editor <path-to-unity-6000.3.11f1>
 ```
 
 Pass a real completed EmbodiedLab model and keep graphics enabled to exercise
@@ -241,7 +241,8 @@ the semantic camera and ONNX session in the Editor:
 
 ```bash
 python3 Tools~/run_unity_tests.py \
-  --unity-editor <path-to-unity-6000.3.11f1> \
+  --unity-version <2022.3-or-6000.3> \
+  --unity-editor <path-to-matching-unity-editor> \
   --policy <path-to-policy.onnx> \
   --with-graphics
 ```
@@ -250,14 +251,15 @@ Build and launch the Windows x64 player smoke test with the same real model:
 
 ```bash
 python3 Tools~/run_unity_standalone_smoke.py \
-  --unity-editor <path-to-unity-6000.3.11f1> \
+  --unity-version <2022.3-or-6000.3> \
+  --unity-editor <path-to-matching-unity-editor> \
   --policy <path-to-policy.onnx> \
   --output-directory <temporary-output-directory>
 ```
 
-The runner stages the committed `Samples~/Quickstart` source into the disposable
-validation project, compiles it with Unity's real C# compiler, runs the package
-Editor tests and canonical-world hierarchy tests, and removes the staged sample
+The runner stages the committed tutorial source from `Samples~/Quickstart` into
+the disposable validation project, compiles it with Unity's real C# compiler,
+runs the package Editor tests and canonical-world hierarchy tests, and removes it
 after both successful and failed runs. Unity remains a local requirement; CI
 continues to run the Python and .NET checks without a licensed Editor.
 

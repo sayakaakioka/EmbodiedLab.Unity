@@ -21,6 +21,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         private readonly List<Material> materials = new();
         private GameObject? root;
+        private float overviewWorldWidth;
+        private float overviewWorldDepth;
 
         internal ScenarioBundle? Scenario { get; private set; }
 
@@ -30,11 +32,27 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         internal Camera? ForwardCamera { get; private set; }
 
+        internal Camera? OverviewCamera { get; private set; }
+
         internal Vector3 RobotStartPosition { get; private set; }
 
         internal Quaternion RobotStartRotation { get; private set; }
 
         internal float GoalRadius { get; private set; }
+
+        internal void FitOverviewCamera(float viewportAspect)
+        {
+            Camera? camera = OverviewCamera;
+            if (camera == null)
+            {
+                return;
+            }
+
+            float safeAspect = Math.Max(viewportAspect, 0.0001f);
+            camera.orthographicSize = Math.Max(
+                overviewWorldDepth,
+                overviewWorldWidth / safeAspect) * 0.62f;
+        }
 
         internal void Build(ScenarioBundle scenario)
         {
@@ -257,9 +275,12 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             cameraObject.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
             Camera camera = cameraObject.AddComponent<Camera>();
             camera.orthographic = true;
-            camera.orthographicSize = Math.Max(width, depth) * 0.62f;
             camera.nearClipPlane = 0.1f;
             camera.farClipPlane = Math.Max(width, depth) * 3f;
+            overviewWorldWidth = width;
+            overviewWorldDepth = depth;
+            OverviewCamera = camera;
+            FitOverviewCamera(1f);
         }
 
         private void CreateLighting()
@@ -310,6 +331,9 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             RobotTransform = null;
             GoalTransform = null;
             ForwardCamera = null;
+            OverviewCamera = null;
+            overviewWorldWidth = 0f;
+            overviewWorldDepth = 0f;
             RobotStartPosition = default;
             RobotStartRotation = default;
             GoalRadius = 0f;

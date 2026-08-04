@@ -19,17 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cancel, replay-manifest download, and trained-model download.
 - Domain-specific scenario JSON persistence, replay manifest and step readers,
   and lazy replay chunk downloads.
-- Importable Quickstart sample for the fixed-environment cloud job workflow.
-- Canonical Quickstart world rendering and sample-local job history with
-  restore, refresh, resumed monitoring, guarded cloud cancellation, safe local
-  artifact paths, and record-only removal.
-- Quickstart replay download and playback using the latest deterministic
+- Importable six-step tutorial for the fixed-environment cloud job workflow.
+- Canonical tutorial world rendering, guarded cloud cancellation, and safe
+  local artifact paths without an application-level history or credential store.
+- Tutorial replay download and playback using the latest deterministic
   evaluation chunk, replay timestamps, episode pauses, and the shared robot.
-- Local Unity validation that imports and compiles the real Quickstart sample
+- Local Unity validation that imports and compiles the real tutorial sample
   and asserts the canonical world's contract-derived hierarchy and transforms.
 - Package-owned CPU ONNX Runtime 1.24.4 binaries, upstream license/notices, and
   Windows x64-only native plugin import settings.
-- Sample-local Quickstart ONNX inference using the submitted semantic camera,
+- Sample-local tutorial ONNX inference using the submitted semantic camera,
   exact current observation/action contract, shared replay robot, deterministic
   Run/Stop reset, and visible contract violations.
 - Real-policy Unity Editor inference and Windows x64 Standalone build/run smoke
@@ -38,17 +37,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its cloud cancellation capability.
 - Idempotent submission recovery using client-generated request and cancellation
   capabilities, with one safe retry after an ambiguous response loss.
-- A background-free Quickstart status overlay anchored at the Game view's
-  upper-left corner with bounded, severity-colored entries.
 
 ### Changed
 
-- Keep Quickstart history read-only after a failed load so a later update cannot
-  replace recoverable records or cancellation capabilities.
+- Replace the operational Quickstart, local history, Advanced panel, and status
+  overlay with ordered scenario, connection, job, artifact, replay, and inference
+  tutorial responsibilities.
+- Display queued results without a known total as waiting for trainer startup
+  instead of ambiguous `0/0` progress.
 - Keep terminal job states sticky, ignore timestamped stale updates, and still
   accept newer enrichment for the same terminal state.
 - Require the canonical ONNX artifact and a declared ONNX format for policy
   download, and require a successful action before Standalone smoke can pass.
+- Switch the Unity 6.3 validation project from the deprecated Input Manager to
+  Input System 1.17.0 without adding an SDK package dependency.
+- Support Unity 2022.3.19f1 as the minimum Editor version by exposing standard
+  `Task`-based asynchronous APIs across both Unity 2022.3 and Unity 6.
 
 ### Security
 

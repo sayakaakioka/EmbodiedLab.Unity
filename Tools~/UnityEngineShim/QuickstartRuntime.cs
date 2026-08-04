@@ -278,6 +278,8 @@ namespace UnityEngine
 
         public int cullingMask { get; set; }
 
+        public Rect rect { get; set; }
+
         public RenderTexture? targetTexture { get; set; }
 
         public void Render()
@@ -441,7 +443,21 @@ namespace UnityEngine
     {
         public Rect(float x, float y, float width, float height)
         {
+            this.x = x;
+            this.y = y;
+            this.width = width;
+            this.height = height;
         }
+
+        public float x { get; }
+
+        public float y { get; }
+
+        public float width { get; }
+
+        public float height { get; }
+
+        public float xMax => x + width;
     }
 
     public sealed class GUILayoutOption
