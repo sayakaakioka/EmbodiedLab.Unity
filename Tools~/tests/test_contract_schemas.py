@@ -38,10 +38,11 @@ class ContractSchemaTests(unittest.TestCase):
         self.assertNotIn("#/$defs/", serialized)
         self.assertNotIn('"anyOf"', serialized)
         self.assertNotIn('"oneOf"', serialized)
+        self.assertNotIn('"prefixItems"', serialized)
         self.assertIn("ReplayLogStep", first["definitions"])
         self.assertIn("ResultDocument", first["definitions"])
         self.assertIn("ScenarioBundle", first["definitions"])
-        self.assertIn("TrainingResponse", first["definitions"])
+        self.assertNotIn("TrainingResponse", first["definitions"])
 
         submission_response = first["definitions"]["SubmissionResponse"]
         self.assertIn("cancel_token", submission_response["required"])
@@ -64,6 +65,19 @@ class ContractSchemaTests(unittest.TestCase):
         self.assertEqual(["scenario-bundle.v0"], schema_version["enum"])
         self.assertEqual("ScenarioBundleSchemaVersion", schema_version["title"])
 
+        onnx_opset = first["definitions"]["OnnxModelArtifactLocation"]["properties"][
+            "opset_version"
+        ]
+        self.assertEqual([17], onnx_opset["enum"])
+
+        replay_actions = first["definitions"]["ReplayAction"]["properties"]["values"]
+        self.assertEqual(2, replay_actions["minItems"])
+        self.assertEqual(2, replay_actions["maxItems"])
+        self.assertEqual(
+            {"$ref": "#/definitions/ReplayActionValue"},
+            replay_actions["items"],
+        )
+
         nullable_number = first["definitions"]["ForwardCameraSensor"]["properties"][
             "mount_height_max_meters"
         ]
@@ -74,14 +88,14 @@ class ContractSchemaTests(unittest.TestCase):
             "progress"
         ]
         self.assertEqual("#/definitions/Progress", nullable_reference["$ref"])
-        self.assertIs(nullable_reference["x-nullable"], True)
+        self.assertNotIn("x-nullable", nullable_reference)
 
         self.assertIs(first["definitions"]["WorldSpec"]["additionalProperties"], False)
         self.assertIs(
-            first["definitions"]["ResultBundle"]["additionalProperties"], True
+            first["definitions"]["ResultBundle"]["additionalProperties"], False
         )
         self.assertIs(
-            first["definitions"]["ResultDocument"]["additionalProperties"], True
+            first["definitions"]["ResultDocument"]["additionalProperties"], False
         )
         self.assertEqual(
             {"type": "string"},
@@ -101,9 +115,12 @@ class ContractSchemaTests(unittest.TestCase):
             "RewardComponent": {
                 "container": "RewardSpec",
                 "property": "components",
+                "discriminator": "type",
                 "mapping": {
                     "collision": "CollisionRewardComponent",
                     "distance_delta": "DistanceDeltaRewardComponent",
+                    "maximum_absolute_forward": "MaximumAbsoluteForwardRewardComponent",
+                    "minimum_absolute_angle": "MinimumAbsoluteAngleRewardComponent",
                     "per_step": "PerStepRewardComponent",
                     "terminal_reward": "TerminalRewardComponent",
                 },
@@ -111,9 +128,29 @@ class ContractSchemaTests(unittest.TestCase):
             "SensorSpec": {
                 "container": "ScenarioBundle",
                 "property": "sensors",
+                "discriminator": "type",
                 "mapping": {
                     "distance_sensor": "DistanceSensor",
                     "forward_camera": "ForwardCameraSensor",
+                    "goal_vector": "GoalVectorSensor",
+                },
+            },
+            "ReplayBundleChunk": {
+                "container": "ReplayBundleManifest",
+                "property": "chunks",
+                "discriminator": "phase",
+                "mapping": {
+                    "eval": "EvalReplayBundleChunk",
+                    "train": "TrainReplayBundleChunk",
+                },
+            },
+            "ReplayActionValue": {
+                "container": "ReplayAction",
+                "property": "values",
+                "discriminator": "name",
+                "mapping": {
+                    "forward": "ReplayForwardActionValue",
+                    "turn": "ReplayTurnActionValue",
                 },
             },
         }
@@ -127,9 +164,10 @@ class ContractSchemaTests(unittest.TestCase):
             base = definitions[base_name]
             self.assertIs(base["x-abstract"], True)
             self.assertIs(base["additionalProperties"], False)
-            self.assertEqual(["type"], base["required"])
-            self.assertEqual({"type": {"type": "string"}}, base["properties"])
-            self.assertEqual("type", base["discriminator"]["propertyName"])
+            discriminator = union["discriminator"]
+            self.assertIn(discriminator, base["required"])
+            self.assertEqual({"type": "string"}, base["properties"][discriminator])
+            self.assertEqual(discriminator, base["discriminator"]["propertyName"])
             self.assertEqual(
                 {
                     wire_value: f"#/definitions/{derived_name}"
@@ -143,7 +181,42 @@ class ContractSchemaTests(unittest.TestCase):
                 self.assertEqual(
                     [{"$ref": f"#/definitions/{base_name}"}], derived["allOf"]
                 )
-                self.assertNotIn("type", derived["properties"])
+                self.assertNotIn(discriminator, derived["properties"])
+
+        replay_chunk = definitions["ReplayBundleChunk"]
+        self.assertIn("checkpoint_step", replay_chunk["properties"])
+        self.assertIn("sha256", replay_chunk["properties"])
+        self.assertIn("size_bytes", replay_chunk["properties"])
+        for chunk_name in ("EvalReplayBundleChunk", "TrainReplayBundleChunk"):
+            self.assertIn("path", definitions[chunk_name]["properties"])
+            self.assertIn("step_count", definitions[chunk_name]["properties"])
+        replay_action_value = definitions["ReplayActionValue"]
+        self.assertIn("value", replay_action_value["properties"])
+
+        null_only_properties = {
+            "EvalReplayBundleChunk": ("end_step", "start_step"),
+            "TrainReplayBundleChunk": (
+                "avg_reward",
+                "avg_steps",
+                "episode_count",
+                "success_rate",
+            ),
+        }
+        for owner, property_names in null_only_properties.items():
+            for property_name in property_names:
+                property_schema = definitions[owner]["properties"][property_name]
+                self.assertEqual("object", property_schema["type"])
+                self.assertIs(property_schema["x-nullable"], True)
+
+        for placeholder in (
+            "AvgReward",
+            "AvgSteps",
+            "EndStep",
+            "EpisodeCount",
+            "StartStep",
+            "SuccessRate",
+        ):
+            self.assertNotIn(placeholder, definitions)
 
     def test_changed_nullable_shape_is_rejected(self) -> None:
         schemas = contract_schemas.verify_provenance(
@@ -177,13 +250,29 @@ class ContractSchemaTests(unittest.TestCase):
         ):
             contract_schemas.build_normalized_bundle(changed)
 
+    def test_changed_semantic_one_of_with_same_branch_count_is_rejected(self) -> None:
+        schemas = contract_schemas.verify_provenance(
+            self.schema_directory, self.manifest
+        )
+        changed = copy.deepcopy(schemas)
+        raw, result_document = changed["result-document.schema.json"]
+        result_document["oneOf"][0]["properties"]["result_bundle"] = {
+            "not": {"type": "null"}
+        }
+        changed["result-document.schema.json"] = (raw, result_document)
+
+        with self.assertRaisesRegex(
+            contract_schemas.ContractSchemaError, "semantic oneOf"
+        ):
+            contract_schemas.build_normalized_bundle(changed)
+
     def test_conflicting_repeated_definition_is_rejected(self) -> None:
         schemas = contract_schemas.verify_provenance(
             self.schema_directory, self.manifest
         )
         changed = copy.deepcopy(schemas)
         raw, result_document = changed["result-document.schema.json"]
-        result_document["$defs"]["ArtifactFormat"]["enum"].append("conflict")
+        result_document["$defs"]["ArtifactStorage"]["enum"].append("conflict")
         changed["result-document.schema.json"] = (raw, result_document)
 
         with self.assertRaisesRegex(

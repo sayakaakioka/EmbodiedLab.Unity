@@ -36,8 +36,8 @@ Scenario / Result / Replay の通信、ジョブ lifecycle、artifact download �
 重点確認点は次のとおり。
 
 - EmbodiedLab の Pydantic model と JSON Schema が正本である。
-- v0 snapshot は7 schemaで、各 byte digest と upstream commit を記録する。
-- reward component は定義済み8要素をすべて明示する。
+- v0 snapshot は6 schemaで、各 byte digest と upstream commit を記録する。
+- reward component は定義済み7要素をすべて明示する。
 - Result Bundle の `observation_layout` は `obs_0` / `obs_1` である。
 - 通常 ONNX は2 input、Sentis ONNX は固定長1 input で、どちらも
   `inputs` 配列と output metadata を持つ。
@@ -68,20 +68,28 @@ terminal state を古い更新で巻き戻さないことを確認する。
 - remote endpoint は HTTPS / WSS、loopback だけ HTTP / WS を許可する。
 - submission は idempotency key と cancel capability を request 前に生成する。
 - WebSocket を主経路とし、失敗、切断、無通信時だけ HTTP へ再同期する。
-- train / cancel は body なしの POST である。
-- download は `.part` を使い、失敗時に既存 destination を保持する。
+- submission POST は Scenario と client-generated recovery values を送り、受付後の
+  training dispatch は server が所有する。cancel POST は body を送らない。
+- download は operation 固有の `.part` を使い、size と SHA-256 の検証失敗時にも
+  既存 destination を保持する。
 
 ## 5. Replay と resource limit を確認する（10分）
 
 次を読む。
 
 1. `Runtime/EmbodiedLabReplay.cs`
-2. `Runtime/Transport/ResourceLimitedReadStream.cs`
-3. `Tests/Editor/EmbodiedLabReplayTests.cs`
+2. `Runtime/ContractSemanticValidator.cs`
+3. `Runtime/ResourceLimitedReadStream.cs`
+4. `Tools~/ContractTests/Program.cs`
+5. `Tools~/TransportTests/Program.cs`
 
 manifest、chunk path、compressed/decompressed byte、1行、step 数の上限が
 固定 invariant であることを確認する。Replay 行の `scenario_id` と `job_id` が
 選択中の job と一致しない場合に拒否する経路も確認する。
+
+Result JSON は transport、Replay manifest／row は `EmbodiedLabReplay` が構造に加えて
+状態間 invariant を検証する。`ScenarioBundleJson` は構造的 deserialize を担当し、
+Scenario 全体の validation は submission 受付時の EmbodiedLab server が担当する。
 
 ## 6. チュートリアルで利用者の体験を確認する（15分）
 

@@ -10,12 +10,16 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
     internal sealed class QuickstartSemanticCamera : IDisposable
     {
         private readonly Camera camera;
+        private readonly QuickstartOnnxContract contract;
         private RenderTexture? renderTexture;
         private Texture2D? readback;
 
-        internal QuickstartSemanticCamera(Camera camera)
+        internal QuickstartSemanticCamera(
+            Camera camera,
+            QuickstartOnnxContract contract)
         {
             this.camera = camera ?? throw new ArgumentNullException(nameof(camera));
+            this.contract = contract ?? throw new ArgumentNullException(nameof(contract));
             if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null)
             {
                 throw new InvalidOperationException(
@@ -23,8 +27,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             }
 
             renderTexture = new RenderTexture(
-                QuickstartOnnxContract.ImageWidth,
-                QuickstartOnnxContract.ImageHeight,
+                contract.ImageWidth,
+                contract.ImageHeight,
                 16,
                 RenderTextureFormat.ARGB32)
             {
@@ -38,8 +42,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             }
 
             readback = new Texture2D(
-                QuickstartOnnxContract.ImageWidth,
-                QuickstartOnnxContract.ImageHeight,
+                contract.ImageWidth,
+                contract.ImageHeight,
                 TextureFormat.RGB24,
                 mipChain: false)
             {
@@ -54,7 +58,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             Texture2D activeReadback = readback ??
                 throw new ObjectDisposedException(nameof(QuickstartSemanticCamera));
             if (destination == null ||
-                destination.Length != QuickstartOnnxContract.ImageValueCount)
+                destination.Length != contract.ImageValueCount)
             {
                 throw new InvalidDataException(
                     "Semantic image observation has an invalid destination size.");
@@ -71,15 +75,16 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                     new Rect(
                         0,
                         0,
-                        QuickstartOnnxContract.ImageWidth,
-                        QuickstartOnnxContract.ImageHeight),
+                        contract.ImageWidth,
+                        contract.ImageHeight),
                     0,
                     0);
                 activeReadback.Apply(updateMipmaps: false, makeNoLongerReadable: false);
                 QuickstartInferenceMath.ConvertRgbToVerticallyFlippedChw(
                     activeReadback.GetPixels32(),
-                    QuickstartOnnxContract.ImageWidth,
-                    QuickstartOnnxContract.ImageHeight,
+                    contract.ImageWidth,
+                    contract.ImageHeight,
+                    contract.ImageChannelLayout,
                     destination);
             }
             catch (Exception exception)
@@ -94,8 +99,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 RenderTexture.active = previousActive;
             }
 
-            int planeSize = QuickstartOnnxContract.ImageHeight *
-                QuickstartOnnxContract.ImageWidth;
+            int planeSize = contract.ImageHeight * contract.ImageWidth;
             double red = 0d;
             double green = 0d;
             double blue = 0d;

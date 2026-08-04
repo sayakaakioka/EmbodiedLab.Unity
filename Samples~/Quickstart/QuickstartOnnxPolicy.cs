@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using EmbodiedLab.Contracts;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 
@@ -13,7 +14,10 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private InferenceSession? session;
         private readonly QuickstartOnnxContract contract;
 
-        internal QuickstartOnnxPolicy(string modelPath)
+        internal QuickstartOnnxPolicy(
+            string modelPath,
+            ScenarioBundle scenario,
+            OnnxModelArtifactLocation modelContract)
         {
             if (string.IsNullOrWhiteSpace(modelPath))
             {
@@ -37,6 +41,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 };
                 session = new InferenceSession(modelPath, options);
                 contract = QuickstartOnnxContract.Validate(
+                    scenario,
+                    modelContract,
                     Describe(session.InputMetadata),
                     Describe(session.OutputMetadata));
             }
@@ -48,6 +54,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             }
         }
 
+        internal QuickstartOnnxContract Contract => contract;
+
         internal QuickstartRawAction Run(
             float[] imageObservation,
             float[] numericObservation)
@@ -55,17 +63,17 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             InferenceSession activeSession = session ??
                 throw new ObjectDisposedException(nameof(QuickstartOnnxPolicy));
             if (imageObservation == null ||
-                imageObservation.Length != QuickstartOnnxContract.ImageValueCount)
+                imageObservation.Length != contract.ImageValueCount)
             {
                 throw new InvalidDataException(
-                    $"Image observation must contain {QuickstartOnnxContract.ImageValueCount} values.");
+                    $"Image observation must contain {contract.ImageValueCount} values.");
             }
 
             if (numericObservation == null ||
-                numericObservation.Length != QuickstartOnnxContract.NumericValueCount)
+                numericObservation.Length != contract.NumericValueCount)
             {
                 throw new InvalidDataException(
-                    $"Numeric observation must contain {QuickstartOnnxContract.NumericValueCount} values.");
+                    $"Numeric observation must contain {contract.NumericValueCount} values.");
             }
 
             var imageTensor = new DenseTensor<float>(
@@ -77,10 +85,10 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             var inputs = new[]
             {
                 NamedOnnxValue.CreateFromTensor(
-                    QuickstartOnnxContract.ImageInputName,
+                    contract.ImageInputName,
                     imageTensor),
                 NamedOnnxValue.CreateFromTensor(
-                    QuickstartOnnxContract.NumericInputName,
+                    contract.NumericInputName,
                     numericTensor),
             };
 
@@ -94,13 +102,13 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 }
 
                 Tensor<float> actions = result.AsTensor<float>();
-                if (actions.Length < 2)
+                if (actions.Length != contract.ActionValueCount)
                 {
                     break;
                 }
 
-                float forward = actions.GetValue(0);
-                float turn = actions.GetValue(1);
+                float forward = actions.GetValue(contract.ForwardActionIndex);
+                float turn = actions.GetValue(contract.TurnActionIndex);
                 if (!IsFinite(forward) || !IsFinite(turn))
                 {
                     throw new InvalidDataException(

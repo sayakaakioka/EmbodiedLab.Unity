@@ -234,13 +234,17 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         private void StartInference()
         {
-            if (!CanRunInference() || artifacts == null)
+            if (!CanRunInference() ||
+                artifacts == null ||
+                artifacts.ModelContract == null)
             {
                 return;
             }
 
             replayPlayer?.Stop();
-            inferenceRunner!.Start(artifacts.ModelPath);
+            inferenceRunner!.Start(
+                artifacts.ModelPath,
+                artifacts.ModelContract);
             activityText = inferenceRunner.Status;
         }
 

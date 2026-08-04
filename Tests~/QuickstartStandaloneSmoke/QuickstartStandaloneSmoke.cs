@@ -4,6 +4,7 @@ using System;
 using System.Globalization;
 using System.IO;
 using EmbodiedLab.Contracts;
+using Newtonsoft.Json;
 using UnityEngine;
 
 namespace EmbodiedLab.Unity.Samples.Quickstart.StandaloneSmoke
@@ -25,12 +26,20 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.StandaloneSmoke
                 resultPath = RequireArgument("--embodiedlab-smoke-result");
                 string scenarioPath = RequireArgument("--embodiedlab-scenario");
                 string modelPath = RequireArgument("--embodiedlab-policy");
+                string resultDocumentPath = RequireArgument("--embodiedlab-result");
                 ScenarioBundle scenario = ScenarioBundleJson.Deserialize(
                     File.ReadAllText(scenarioPath));
+                ResultDocument result = JsonConvert.DeserializeObject<ResultDocument>(
+                    File.ReadAllText(resultDocumentPath)) ?? throw new InvalidDataException(
+                        "Canonical Result fixture was empty.");
+                OnnxModelArtifactLocation modelContract =
+                    result.ResultBundle?.Artifacts?.OnnxModel ??
+                    throw new InvalidDataException(
+                        "Canonical Result fixture has no ONNX model metadata.");
                 world = new QuickstartWorldBuilder();
                 world.Build(scenario);
                 runner = new QuickstartInferenceRunner(world);
-                runner.Start(modelPath);
+                runner.Start(modelPath, modelContract);
                 if (!runner.IsRunning)
                 {
                     Finish(false, runner.Status);
@@ -52,7 +61,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.StandaloneSmoke
             try
             {
                 frameCount++;
-                runner.Tick(QuickstartInferenceRunner.DecisionSeconds);
+                runner.Tick(runner.DecisionSeconds);
                 if (!runner.IsRunning)
                 {
                     Finish(false, runner.Status);

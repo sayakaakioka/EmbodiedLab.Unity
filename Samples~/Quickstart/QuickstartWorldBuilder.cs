@@ -203,11 +203,10 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         private void CreateForwardCamera(ForwardCameraSensor sensor)
         {
-            if (sensor.Width != QuickstartOnnxContract.ImageWidth ||
-                sensor.Height != QuickstartOnnxContract.ImageHeight)
+            if (sensor.Width <= 0 || sensor.Height <= 0)
             {
                 throw new InvalidOperationException(
-                    "Quickstart ONNX inference requires a 112x84 forward camera sensor.");
+                    "Scenario forward camera dimensions must be positive.");
             }
 
             if (sensor.SemanticMode != SemanticMode.TraversableVsBlocked)

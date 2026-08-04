@@ -3,6 +3,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using EmbodiedLab.Contracts;
+using EmbodiedLab.Unity.Internal;
 
 namespace EmbodiedLab.Unity.Samples.Quickstart
 {
@@ -27,34 +30,89 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
     internal sealed class QuickstartOnnxContract
     {
-        internal const string ImageInputName = "obs_0";
-        internal const string NumericInputName = "obs_1";
-        internal const int ImageChannels = 3;
-        internal const int ImageHeight = 84;
-        internal const int ImageWidth = 112;
-        internal const int ImageValueCount = ImageChannels * ImageHeight * ImageWidth;
-        internal const int NumericValueCount = 2;
+        private static readonly string[] SupportedImageChannels =
+        {
+            "channel_0_unused",
+            "channel_1_traversable",
+            "channel_2_blocked_or_background",
+        };
 
         private QuickstartOnnxContract(
+            ForwardCameraSensor cameraSensor,
+            GoalVectorSensor goalVectorSensor,
+            ModelInput imageInput,
             int[] imageDimensions,
+            ModelInput numericInput,
             int[] numericDimensions,
-            string outputName)
+            string outputName,
+            int actionValueCount,
+            int forwardActionIndex,
+            int turnActionIndex)
         {
+            CameraSensor = cameraSensor;
+            GoalVectorSensor = goalVectorSensor;
+            ImageInputName = imageInput.Name;
             ImageDimensions = imageDimensions;
+            ImageChannelLayout = imageInput.Layout.ToArray();
+            NumericInputName = numericInput.Name;
             NumericDimensions = numericDimensions;
+            NumericValues = goalVectorSensor.Values.ToArray();
             OutputName = outputName;
+            ActionValueCount = actionValueCount;
+            ForwardActionIndex = forwardActionIndex;
+            TurnActionIndex = turnActionIndex;
         }
+
+        internal ForwardCameraSensor CameraSensor { get; }
+
+        internal GoalVectorSensor GoalVectorSensor { get; }
+
+        internal string ImageInputName { get; }
 
         internal int[] ImageDimensions { get; }
 
+        internal IReadOnlyList<string> ImageChannelLayout { get; }
+
+        internal int ImageChannels => ImageChannelLayout.Count;
+
+        internal int ImageHeight => CameraSensor.Height;
+
+        internal int ImageWidth => CameraSensor.Width;
+
+        internal int ImageValueCount => checked(ImageChannels * ImageHeight * ImageWidth);
+
+        internal string NumericInputName { get; }
+
         internal int[] NumericDimensions { get; }
+
+        internal IReadOnlyList<Values> NumericValues { get; }
+
+        internal int NumericValueCount => NumericValues.Count;
 
         internal string OutputName { get; }
 
+        internal int ActionValueCount { get; }
+
+        internal int ForwardActionIndex { get; }
+
+        internal int TurnActionIndex { get; }
+
         internal static QuickstartOnnxContract Validate(
+            ScenarioBundle scenario,
+            OnnxModelArtifactLocation model,
             IReadOnlyList<QuickstartTensorMetadata> inputs,
             IReadOnlyList<QuickstartTensorMetadata> outputs)
         {
+            if (scenario == null)
+            {
+                throw new ArgumentNullException(nameof(scenario));
+            }
+
+            if (model == null)
+            {
+                throw new ArgumentNullException(nameof(model));
+            }
+
             if (inputs == null)
             {
                 throw new ArgumentNullException(nameof(inputs));
@@ -65,160 +123,272 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 throw new ArgumentNullException(nameof(outputs));
             }
 
-            if (inputs.Count != 2)
+            if (model.Format != OnnxModelArtifactLocationFormat.Onnx ||
+                model.Target != OnnxModelArtifactLocationTarget.OnnxRuntime ||
+                model.OpsetVersion != OnnxModelArtifactLocationOpsetVersion._17)
             {
                 throw new InvalidDataException(
-                    "ONNX policy must expose exactly obs_0 and obs_1 inputs.");
+                    "The downloaded model metadata is not the supported ONNX contract.");
             }
 
-            int[]? imageDimensions = null;
-            int[]? numericDimensions = null;
-            foreach (QuickstartTensorMetadata input in inputs)
+            ForwardCameraSensor cameraSensor = RequireSingleSensor<ForwardCameraSensor>(scenario);
+            GoalVectorSensor goalVectorSensor = RequireSingleSensor<GoalVectorSensor>(scenario);
+            if (cameraSensor.Width <= 0 || cameraSensor.Height <= 0)
             {
-                if (!input.IsFloat)
-                {
-                    throw new InvalidDataException(
-                        $"ONNX input '{input.Name}' must contain float values.");
-                }
+                throw new InvalidDataException(
+                    "Scenario camera dimensions must be positive.");
+            }
 
-                if (string.Equals(input.Name, ImageInputName, StringComparison.Ordinal))
-                {
-                    imageDimensions = ResolveImageDimensions(input.Dimensions);
-                }
-                else if (string.Equals(
+            if (model.Inputs == null || model.Inputs.Count != 2 || inputs.Count != 2)
+            {
+                throw new InvalidDataException(
+                    "ONNX policy must expose the two observations declared by the Scenario.");
+            }
+
+            ModelInput imageInput = RequireModelInput(model.Inputs, cameraSensor.ObservationName);
+            ModelInput numericInput = RequireModelInput(
+                model.Inputs,
+                goalVectorSensor.ObservationName);
+            ValidateImageLayout(imageInput.Layout);
+            string[] numericLayout = goalVectorSensor.Values
+                .Select(ToWireValue)
+                .ToArray();
+            RequireExactLayout(
+                imageInput.Layout,
+                SupportedImageChannels,
+                "semantic camera input");
+            RequireExactLayout(
+                numericInput.Layout,
+                numericLayout,
+                "goal-vector input");
+
+            QuickstartTensorMetadata imageMetadata = RequireTensor(
+                inputs,
+                imageInput.Name,
+                "input");
+            QuickstartTensorMetadata numericMetadata = RequireTensor(
+                inputs,
+                numericInput.Name,
+                "input");
+            int[] imageDimensions = ValidateInput(
+                imageInput,
+                imageMetadata,
+                new[] { imageInput.Layout.Count, cameraSensor.Height, cameraSensor.Width });
+            int[] numericDimensions = ValidateInput(
+                numericInput,
+                numericMetadata,
+                new[] { goalVectorSensor.Values.Count });
+
+            ModelOutput output = model.Output ?? throw new InvalidDataException(
+                "ONNX model output metadata is required.");
+            ContractSemanticValidator.ValidateSupportedModelOutput(
+                output,
+                "ONNX model");
+            if (outputs.Count != 1)
+            {
+                throw new InvalidDataException(
+                    "ONNX policy must expose exactly one declared action output.");
+            }
+
+            QuickstartTensorMetadata outputMetadata = RequireTensor(
+                outputs,
+                output.Name,
+                "output");
+            if (!outputMetadata.IsFloat ||
+                !HasExactOutputShape(
+                    outputMetadata.Dimensions,
+                    output.Layout.Count))
+            {
+                throw new InvalidDataException(
+                    $"ONNX output '{output.Name}' does not match its declared action layout.");
+            }
+
+            string[] actionLayout = scenario.Robot?.ActionSpace?.Layout?
+                .Select(ToWireValue)
+                .ToArray() ?? throw new InvalidDataException(
+                    "Scenario action layout is required.");
+            RequireExactLayout(output.Layout, actionLayout, "model action output");
+            int forwardIndex = Array.IndexOf(actionLayout, "forward");
+            int turnIndex = Array.IndexOf(actionLayout, "turn");
+            if (forwardIndex < 0 || turnIndex < 0 || actionLayout.Length != 2)
+            {
+                throw new InvalidDataException(
+                    "Quickstart requires forward and turn actions in the Scenario layout.");
+            }
+
+            return new QuickstartOnnxContract(
+                cameraSensor,
+                goalVectorSensor,
+                imageInput,
+                imageDimensions,
+                numericInput,
+                numericDimensions,
+                output.Name,
+                actionLayout.Length,
+                forwardIndex,
+                turnIndex);
+        }
+
+        private static T RequireSingleSensor<T>(ScenarioBundle scenario)
+            where T : SensorSpec
+        {
+            T[] matches = scenario.Sensors?.OfType<T>().ToArray() ?? Array.Empty<T>();
+            if (matches.Length != 1)
+            {
+                throw new InvalidDataException(
+                    $"Scenario must declare exactly one {typeof(T).Name}.");
+            }
+
+            return matches[0];
+        }
+
+        private static ModelInput RequireModelInput(
+            ICollection<ModelInput> inputs,
+            string observationName)
+        {
+            if (string.IsNullOrWhiteSpace(observationName))
+            {
+                throw new InvalidDataException("Scenario observation_name is required.");
+            }
+
+            ModelInput[] matches = inputs
+                .Where(input => input != null && string.Equals(
                     input.Name,
-                    NumericInputName,
+                    observationName,
                     StringComparison.Ordinal))
-                {
-                    numericDimensions = ResolveNumericDimensions(input.Dimensions);
-                }
-                else
-                {
-                    throw new InvalidDataException(
-                        $"Unsupported ONNX input '{input.Name}'. Expected only obs_0 and obs_1.");
-                }
-            }
-
-            if (imageDimensions == null || numericDimensions == null)
+                .ToArray();
+            if (matches.Length != 1)
             {
                 throw new InvalidDataException(
-                    "ONNX policy must expose both obs_0 and obs_1 inputs.");
+                    $"Model metadata must declare Scenario observation '{observationName}'.");
             }
 
-            foreach (QuickstartTensorMetadata output in outputs)
+            return matches[0];
+        }
+
+        private static QuickstartTensorMetadata RequireTensor(
+            IReadOnlyList<QuickstartTensorMetadata> tensors,
+            string name,
+            string kind)
+        {
+            QuickstartTensorMetadata[] matches = tensors
+                .Where(tensor => string.Equals(tensor.Name, name, StringComparison.Ordinal))
+                .ToArray();
+            if (matches.Length != 1)
             {
-                if (output.IsFloat && ContainsAtLeastTwoValues(output.Dimensions))
+                throw new InvalidDataException(
+                    $"ONNX session must expose declared {kind} '{name}'.");
+            }
+
+            return matches[0];
+        }
+
+        private static int[] ValidateInput(
+            ModelInput declared,
+            QuickstartTensorMetadata actual,
+            IReadOnlyList<int> expectedPayload)
+        {
+            if (!string.Equals(declared.Dtype, "float32", StringComparison.Ordinal) ||
+                !actual.IsFloat ||
+                declared.Shape == null)
+            {
+                throw new InvalidDataException(
+                    $"ONNX input '{declared.Name}' must contain float32 values.");
+            }
+
+            int[] declaredShape = declared.Shape.ToArray();
+            bool hasBatch = declaredShape.Length == expectedPayload.Count + 1;
+            if ((!hasBatch && declaredShape.Length != expectedPayload.Count) ||
+                actual.Dimensions.Count != declaredShape.Length)
+            {
+                throw new InvalidDataException(
+                    $"ONNX input '{declared.Name}' rank does not match its declared shape.");
+            }
+
+            int payloadOffset = hasBatch ? 1 : 0;
+            if (hasBatch &&
+                (!IsSupportedBatchDimension(declaredShape[0]) ||
+                    !IsSupportedBatchDimension(actual.Dimensions[0])))
+            {
+                throw new InvalidDataException(
+                    $"ONNX input '{declared.Name}' batch dimension must be dynamic or one.");
+            }
+
+            for (int index = 0; index < expectedPayload.Count; index++)
+            {
+                int declaredDimension = declaredShape[index + payloadOffset];
+                if (declaredDimension != expectedPayload[index] ||
+                    actual.Dimensions[index + payloadOffset] != declaredDimension)
                 {
-                    return new QuickstartOnnxContract(
-                        imageDimensions,
-                        numericDimensions,
-                        output.Name);
+                    throw new InvalidDataException(
+                        $"ONNX input '{declared.Name}' shape does not match Scenario/model metadata.");
                 }
             }
 
-            throw new InvalidDataException(
-                "ONNX policy must expose a float output containing at least two actions.");
+            if (hasBatch)
+            {
+                declaredShape[0] = 1;
+            }
+
+            return declaredShape;
         }
 
-        private static int[] ResolveImageDimensions(IReadOnlyList<int> dimensions)
+        private static void ValidateImageLayout(ICollection<string> layout)
         {
-            if (MatchesDimensions(
-                dimensions,
-                new[] { ImageChannels, ImageHeight, ImageWidth }))
+            if (layout == null ||
+                layout.Count != 3 ||
+                layout.Distinct(StringComparer.Ordinal).Count() != layout.Count)
             {
-                return new[] { ImageChannels, ImageHeight, ImageWidth };
+                throw new InvalidDataException(
+                    "Semantic camera model metadata must declare three unique channels.");
             }
-
-            if (MatchesOptionalBatchDimensions(
-                dimensions,
-                new[] { ImageChannels, ImageHeight, ImageWidth }))
-            {
-                return new[] { 1, ImageChannels, ImageHeight, ImageWidth };
-            }
-
-            throw new InvalidDataException(
-                "ONNX input 'obs_0' must have shape [3,84,112] or [batch,3,84,112].");
         }
 
-        private static int[] ResolveNumericDimensions(IReadOnlyList<int> dimensions)
+        private static void RequireExactLayout(
+            IEnumerable<string> actual,
+            IEnumerable<string> expected,
+            string description)
         {
-            if (MatchesDimensions(dimensions, new[] { NumericValueCount }))
+            if (actual == null || !actual.SequenceEqual(expected, StringComparer.Ordinal))
             {
-                return new[] { NumericValueCount };
+                throw new InvalidDataException(
+                    $"The {description} does not match the Scenario/model contract.");
             }
-
-            if (MatchesOptionalBatchDimensions(
-                dimensions,
-                new[] { NumericValueCount }))
-            {
-                return new[] { 1, NumericValueCount };
-            }
-
-            throw new InvalidDataException(
-                "ONNX input 'obs_1' must have shape [2] or [batch,2].");
         }
 
-        private static bool MatchesDimensions(
-            IReadOnlyList<int> actual,
-            IReadOnlyList<int> expected)
+        private static string ToWireValue(Values value) => value switch
         {
-            if (actual.Count != expected.Count)
+            Values.GoalAngleDegrees => "goal_angle_degrees",
+            Values.GoalDistanceMeters => "goal_distance_meters",
+            _ => throw new InvalidDataException(
+                $"Unsupported goal-vector value '{value}'."),
+        };
+
+        private static string ToWireValue(Layout value) => value switch
+        {
+            Layout.Forward => "forward",
+            Layout.Turn => "turn",
+            _ => throw new InvalidDataException($"Unsupported action '{value}'."),
+        };
+
+        private static bool HasExactOutputShape(
+            IReadOnlyList<int> dimensions,
+            int requiredValues)
+        {
+            if (requiredValues <= 0)
             {
                 return false;
             }
 
-            for (int index = 0; index < expected.Count; index++)
-            {
-                if (actual[index] != expected[index])
-                {
-                    return false;
-                }
-            }
-
-            return true;
+            return dimensions.Count == 1 && dimensions[0] == requiredValues ||
+                dimensions.Count == 2 &&
+                IsSupportedBatchDimension(dimensions[0]) &&
+                dimensions[1] == requiredValues;
         }
 
-        private static bool MatchesOptionalBatchDimensions(
-            IReadOnlyList<int> actual,
-            IReadOnlyList<int> expectedWithoutBatch)
+        private static bool IsSupportedBatchDimension(int dimension)
         {
-            if (actual.Count != expectedWithoutBatch.Count + 1 || actual[0] > 1)
-            {
-                return false;
-            }
-
-            for (int index = 0; index < expectedWithoutBatch.Count; index++)
-            {
-                if (actual[index + 1] != expectedWithoutBatch[index])
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        private static bool ContainsAtLeastTwoValues(IReadOnlyList<int> dimensions)
-        {
-            if (dimensions.Count == 0)
-            {
-                return false;
-            }
-
-            long knownProduct = 1;
-            foreach (int dimension in dimensions)
-            {
-                if (dimension > 0)
-                {
-                    knownProduct *= dimension;
-                    if (knownProduct >= 2)
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
+            return dimension == -1 || dimension == 1;
         }
     }
 }

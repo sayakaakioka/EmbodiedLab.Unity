@@ -29,17 +29,16 @@ namespace EmbodiedLab.Unity.Tests
             AssertTypes(
                 scenario.Sensors,
                 typeof(ForwardCameraSensor),
-                typeof(DistanceSensor));
+                typeof(GoalVectorSensor));
             AssertTypes(
                 scenario.Reward.Components,
                 typeof(TerminalRewardComponent),
                 typeof(DistanceDeltaRewardComponent),
                 typeof(CollisionRewardComponent),
                 typeof(PerStepRewardComponent),
-                typeof(PerStepRewardComponent),
-                typeof(PerStepRewardComponent),
-                typeof(PerStepRewardComponent),
-                typeof(PerStepRewardComponent));
+                typeof(MinimumAbsoluteAngleRewardComponent),
+                typeof(MinimumAbsoluteAngleRewardComponent),
+                typeof(MaximumAbsoluteForwardRewardComponent));
         }
 
         [Test]
@@ -105,7 +104,7 @@ namespace EmbodiedLab.Unity.Tests
             AssertTypes(
                 reparsed.Sensors,
                 typeof(ForwardCameraSensor),
-                typeof(DistanceSensor));
+                typeof(GoalVectorSensor));
         }
 
         [Test]
@@ -270,9 +269,17 @@ namespace EmbodiedLab.Unity.Tests
                 ["phase"] = "eval",
                 ["policy_mode"] = "deterministic",
                 ["checkpoint_step"] = 5000,
+                ["start_step"] = JValue.CreateNull(),
+                ["end_step"] = JValue.CreateNull(),
                 ["path"] = path,
                 ["format"] = "jsonl.gz",
+                ["size_bytes"] = 1,
+                ["sha256"] = new string('0', 64),
                 ["step_count"] = stepCount,
+                ["episode_count"] = 1,
+                ["success_rate"] = 1.0,
+                ["avg_reward"] = 1.0,
+                ["avg_steps"] = 1.0,
             };
         }
 

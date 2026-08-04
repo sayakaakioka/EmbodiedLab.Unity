@@ -1,10 +1,13 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.WebSockets;
+using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text;
 using EmbodiedLab.Contracts;
 using EmbodiedLab.Unity;
 using EmbodiedLab.Unity.Internal;
+using Newtonsoft.Json.Linq;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
@@ -13,7 +16,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Submission response recovery", TestSubmissionResponseRecoveryAsync),
     ("Bounded submission recovery", TestBoundedSubmissionRecoveryAsync),
     ("Submission capability mismatch", TestSubmissionCapabilityMismatchAsync),
-    ("Recoverable training start failure", TestRecoverableTrainingStartFailureAsync),
+    ("Server-owned training dispatch", TestServerOwnedTrainingDispatchAsync),
     ("WebSocket primary", TestHealthyWebSocketUsesNoResultGetAsync),
     ("WebSocket message limit", TestWebSocketMessageLimitAsync),
     ("WebSocket message deadline", TestWebSocketMessageDeadlineAsync),
@@ -23,12 +26,17 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Bounded reconnect", TestReconnectDelayIsBoundedAsync),
     ("Local cancellation", TestLocalCancellationStopsMonitoringAsync),
     ("Artifact download", TestArtifactDownloadAsync),
+    ("Artifact validation cancellation", TestArtifactValidationCancellationAsync),
+    ("Concurrent artifact downloads", TestConcurrentArtifactDownloadsAsync),
+    ("Bounded HTTP responses", TestBoundedHttpResponsesAsync),
     ("Artifact format limits", TestArtifactFormatLimits),
     ("Artifact content-length limit", TestOversizedArtifactContentLengthAsync),
     ("Artifact streaming limit", TestOversizedStreamingArtifactAsync),
     ("Incorrect artifact content length", TestIncorrectArtifactContentLengthAsync),
+    ("Artifact digest mismatch", TestArtifactDigestMismatchAsync),
     ("Interrupted artifact cleanup", TestInterruptedArtifactDownloadAsync),
     ("Stateful facade", TestStatefulFacadeAsync),
+    ("Facade scenario identity", TestFacadeScenarioIdentityAsync),
     ("Stale result rejection", TestStaleResultUpdatesAreRejectedAsync),
     ("Terminal result enrichment", TestTerminalResultEnrichmentAsync),
     ("Facade model selection", TestFacadeModelSelectionAsync),
@@ -45,6 +53,14 @@ foreach ((string name, Func<Task> run) in tests)
 
 Console.WriteLine($"Validated {tests.Length} transport behaviors.");
 return 0;
+
+static ScenarioBundle CreateScenario()
+{
+    string fixturePath = Path.GetFullPath(Path.Combine(
+        AppContext.BaseDirectory,
+        "../../../../../Tests~/Fixtures/navigation_default_scenario_bundle.json"));
+    return ScenarioBundleJson.Deserialize(File.ReadAllText(fixturePath));
+}
 
 static Task TestEndpointEncryptionAsync()
 {
@@ -140,8 +156,6 @@ static async Task TestHttpContractsAsync()
     {
         "/root/submissions" => JsonResponse(
             $$"""{"cancel_token":"{{request.ClientCancelToken}}","status":"accepted","submission_id":"submission-1"}"""),
-        "/root/submissions/submission-1/train" => JsonResponse(
-            """{"status":"accepted","submission_id":"submission-1"}"""),
         "/root/submissions/submission-1/cancel" => JsonResponse(
             ResultJson("cancelled"),
             HttpStatusCode.Accepted),
@@ -151,10 +165,7 @@ static async Task TestHttpContractsAsync()
     using var transport = CreateTransport(handler, new QueueWebSocketFactory());
 
     SubmissionResponse submitted = await transport.SubmitAsync(
-        new ScenarioBundle { ScenarioId = "scenario-1" },
-        CancellationToken.None);
-    TrainingResponse training = await transport.StartTrainingAsync(
-        submitted.SubmissionId,
+        CreateScenario(),
         CancellationToken.None);
     ResultDocument result = await transport.GetResultAsync(
         submitted.SubmissionId,
@@ -172,13 +183,9 @@ static async Task TestHttpContractsAsync()
         "submission capability");
     AssertEqual(true, submissionRequest.IdempotencyKey?.Length >= 32, "idempotency key");
     AssertEqual(true, submitted.CancelToken.Length >= 32, "client cancellation capability");
-    AssertEqual("submission-1", training.SubmissionId, "training submission");
     AssertEqual(ResultStatus.Running, result.Status, "result status");
     AssertEqual(ResultStatus.Cancelled, cancelled.Status, "cancel status");
-    AssertEqual(4, handler.Requests.Count, "HTTP request count");
-    RecordedRequest trainingRequest = handler.Requests.Single(
-        request => request.Uri.AbsolutePath.EndsWith("/train", StringComparison.Ordinal));
-    AssertEqual<string?>(null, trainingRequest.Body, "training request body");
+    AssertEqual(3, handler.Requests.Count, "HTTP request count");
     RecordedRequest cancelRequest = handler.Requests.Single(
         request => request.Uri.AbsolutePath.EndsWith("/cancel", StringComparison.Ordinal));
     AssertEqual<string?>(null, cancelRequest.Body, "cancel request body");
@@ -208,7 +215,7 @@ static async Task TestSubmissionResponseRecoveryAsync()
     using var transport = CreateTransport(handler, new QueueWebSocketFactory());
 
     SubmissionResponse recovered = await transport.SubmitAsync(
-        new ScenarioBundle { ScenarioId = "scenario-1" },
+        CreateScenario(),
         CancellationToken.None);
 
     AssertEqual(2, handler.Requests.Count, "submission recovery attempts");
@@ -242,7 +249,7 @@ static async Task TestBoundedSubmissionRecoveryAsync()
 
     await AssertThrowsAsync<HttpRequestException>(
         () => transport.SubmitAsync(
-            new ScenarioBundle { ScenarioId = "scenario-1" },
+            CreateScenario(),
             CancellationToken.None));
 
     AssertEqual(2, handler.Requests.Count, "bounded submission attempts");
@@ -272,51 +279,32 @@ static async Task TestSubmissionCapabilityMismatchAsync()
 
     await AssertThrowsAsync<InvalidDataException>(
         () => transport.SubmitAsync(
-            new ScenarioBundle { ScenarioId = "scenario-1" },
+            CreateScenario(),
             CancellationToken.None));
 
     AssertEqual(1, handler.Requests.Count, "capability mismatch request count");
 }
 
-static async Task TestRecoverableTrainingStartFailureAsync()
+static async Task TestServerOwnedTrainingDispatchAsync()
 {
     var handler = new RecordingHttpHandler(request => request.Uri.AbsolutePath switch
     {
         "/root/submissions" => JsonResponse(
             $$"""{"cancel_token":"{{request.ClientCancelToken}}","status":"accepted","submission_id":"submission-1"}"""),
-        "/root/submissions/submission-1/train" => throw new HttpRequestException(
-            "Training response was lost."),
         _ => throw new InvalidOperationException($"Unexpected request: {request.Uri}"),
     });
-    EmbodiedLabJob? unexpectedJob = null;
-    try
-    {
-        unexpectedJob = await EmbodiedLabJob.SubmitAsync(
-            CreateTransport(handler, new QueueWebSocketFactory()),
-            new ScenarioBundle { ScenarioId = "scenario-1" },
-            synchronizationContext: null,
-            CancellationToken.None);
-    }
-    catch (EmbodiedLabTrainingStartException exception)
-    {
-        using EmbodiedLabJob recoverableJob = exception.Job;
-        AssertEqual("submission-1", recoverableJob.SubmissionId, "recoverable submission ID");
-        AssertEqual(
-            handler.Requests[0].ClientCancelToken,
-            recoverableJob.CancelToken,
-            "recoverable capability");
-        AssertEqual(
-            typeof(HttpRequestException),
-            exception.InnerException?.GetType(),
-            "training start failure cause");
-        return;
-    }
-    finally
-    {
-        unexpectedJob?.Dispose();
-    }
+    using EmbodiedLabJob job = await EmbodiedLabJob.SubmitAsync(
+        CreateTransport(handler, new QueueWebSocketFactory()),
+        CreateScenario(),
+        synchronizationContext: null,
+        CancellationToken.None);
 
-    throw new InvalidOperationException("Expected a recoverable training start failure.");
+    AssertEqual("submission-1", job.SubmissionId, "server-owned dispatch submission ID");
+    AssertEqual(
+        handler.Requests[0].ClientCancelToken,
+        job.CancelToken,
+        "server-owned dispatch capability");
+    AssertEqual(1, handler.Requests.Count, "server-owned dispatch request count");
 }
 
 static async Task TestHealthyWebSocketUsesNoResultGetAsync()
@@ -527,13 +515,13 @@ static async Task TestArtifactDownloadAsync()
     try
     {
         await transport.DownloadArtifactAsync(
-            new ArtifactLocation
-            {
-                Bucket = "bucket-name",
-                Path = "folder/model one.onnx",
-                Format = ArtifactFormat.Onnx,
-                Storage = ArtifactStorage.Gcs,
-            },
+            new ArtifactDownloadRequest(
+                ArtifactStorage.Gcs,
+                "bucket-name",
+                "folder/model one.onnx",
+                "onnx",
+                expected.LongLength,
+                ComputeSha256(expected)),
             destination,
             CancellationToken.None);
         AssertSequence(expected, await File.ReadAllBytesAsync(destination), "artifact bytes");
@@ -547,28 +535,167 @@ static async Task TestArtifactDownloadAsync()
     }
 }
 
+static async Task TestConcurrentArtifactDownloadsAsync()
+{
+    byte[] first = Encoding.UTF8.GetBytes("first verified model");
+    byte[] second = Encoding.UTF8.GetBytes("second verified model");
+    using var transport = CreateTransport(
+        new CoordinatedArtifactHandler(first, second),
+        new QueueWebSocketFactory());
+    string directory = Path.Combine(
+        Path.GetTempPath(),
+        $"embodiedlab-concurrent-download-{Guid.NewGuid():N}");
+    string destination = Path.Combine(directory, "policy.onnx");
+
+    try
+    {
+        Directory.CreateDirectory(directory);
+        await File.WriteAllTextAsync(destination, "existing destination");
+        Task firstDownload = transport.DownloadArtifactAsync(
+            new ArtifactDownloadRequest(
+                ArtifactStorage.Gcs,
+                "models",
+                "first.onnx",
+                "onnx",
+                first.LongLength,
+                ComputeSha256(first)),
+            destination,
+            CancellationToken.None);
+        Task secondDownload = transport.DownloadArtifactAsync(
+            new ArtifactDownloadRequest(
+                ArtifactStorage.Gcs,
+                "models",
+                "second.onnx",
+                "onnx",
+                second.LongLength,
+                ComputeSha256(second)),
+            destination,
+            CancellationToken.None);
+
+        await Task.WhenAll(firstDownload, secondDownload);
+        byte[] actual = await File.ReadAllBytesAsync(destination);
+        AssertEqual(
+            actual.SequenceEqual(first) || actual.SequenceEqual(second),
+            true,
+            "concurrent destination contains one fully verified artifact");
+        AssertEqual(
+            0,
+            Directory.GetFiles(directory, "*.part").Length,
+            "concurrent temporary files");
+    }
+    finally
+    {
+        if (Directory.Exists(directory))
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+}
+
+static async Task TestArtifactValidationCancellationAsync()
+{
+    byte[] expected = Encoding.UTF8.GetBytes("validated artifact");
+    var handler = new RecordingHttpHandler(_ =>
+        new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(expected),
+        });
+    using var transport = CreateTransport(handler, new QueueWebSocketFactory());
+    using var cancellation = new CancellationTokenSource();
+    string directory = Path.Combine(
+        Path.GetTempPath(),
+        $"embodiedlab-validation-cancel-{Guid.NewGuid():N}");
+    string destination = Path.Combine(directory, "manifest.json");
+    byte[] existing = Encoding.UTF8.GetBytes("existing destination");
+    bool validationStarted = false;
+
+    try
+    {
+        Directory.CreateDirectory(directory);
+        await File.WriteAllBytesAsync(destination, existing);
+        await AssertThrowsAsync<OperationCanceledException>(
+            () => transport.DownloadArtifactAsync(
+                new ArtifactDownloadRequest(
+                    ArtifactStorage.Gcs,
+                    "bucket-name",
+                    "replay/manifest.json",
+                    "json",
+                    expected.LongLength,
+                    ComputeSha256(expected)),
+                destination,
+                cancellation.Token,
+                (_, validationCancellation) =>
+                {
+                    validationStarted = true;
+                    cancellation.Cancel();
+                    validationCancellation.ThrowIfCancellationRequested();
+                }));
+        AssertEqual(true, validationStarted, "artifact validation started");
+        AssertSequence(
+            existing,
+            await File.ReadAllBytesAsync(destination),
+            "validation cancellation destination bytes");
+        AssertEqual(
+            0,
+            Directory.GetFiles(directory, "*.part").Length,
+            "validation cancellation temporary files");
+    }
+    finally
+    {
+        if (Directory.Exists(directory))
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+}
+
+static async Task TestBoundedHttpResponsesAsync()
+{
+    byte[] oversizedJson = new byte[(1024 * 1024) + 1];
+    var successHandler = new RecordingHttpHandler(_ =>
+        new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(oversizedJson),
+        });
+    using (var transport = CreateTransport(
+        successHandler,
+        new QueueWebSocketFactory()))
+    {
+        await AssertThrowsAsync<InvalidDataException>(
+            () => transport.GetResultAsync("submission-1", CancellationToken.None));
+    }
+
+    byte[] oversizedError = new byte[(64 * 1024) + 1];
+    var errorHandler = new RecordingHttpHandler(_ =>
+        new HttpResponseMessage(HttpStatusCode.BadGateway)
+        {
+            Content = new ByteArrayContent(oversizedError),
+        });
+    using var errorTransport = CreateTransport(
+        errorHandler,
+        new QueueWebSocketFactory());
+    await AssertThrowsAsync<InvalidDataException>(
+        () => errorTransport.GetResultAsync("submission-1", CancellationToken.None));
+}
+
 static Task TestArtifactFormatLimits()
 {
     AssertEqual(
         1024L * 1024L,
-        EmbodiedLabTransport.GetMaximumArtifactBytes(ArtifactFormat.Json),
+        EmbodiedLabTransport.GetMaximumArtifactBytes("json"),
         "JSON artifact limit");
     AssertEqual(
         64L * 1024L * 1024L,
-        EmbodiedLabTransport.GetMaximumArtifactBytes(ArtifactFormat.Jsonl),
+        EmbodiedLabTransport.GetMaximumArtifactBytes("jsonl"),
         "JSONL artifact limit");
     AssertEqual(
         64L * 1024L * 1024L,
-        EmbodiedLabTransport.GetMaximumArtifactBytes(ArtifactFormat.JsonlGz),
+        EmbodiedLabTransport.GetMaximumArtifactBytes("jsonl.gz"),
         "compressed JSONL artifact limit");
     AssertEqual(
         1024L * 1024L * 1024L,
-        EmbodiedLabTransport.GetMaximumArtifactBytes(ArtifactFormat.Onnx),
+        EmbodiedLabTransport.GetMaximumArtifactBytes("onnx"),
         "ONNX artifact limit");
-    AssertEqual(
-        1024L * 1024L * 1024L,
-        EmbodiedLabTransport.GetMaximumArtifactBytes(ArtifactFormat.Zip),
-        "ZIP artifact limit");
     return Task.CompletedTask;
 }
 
@@ -605,12 +732,22 @@ static Task TestInterruptedArtifactDownloadAsync()
     content.Headers.ContentLength = null;
     return AssertRejectedDownloadPreservesDestinationAsync<IOException>(
         content,
-        "interrupted response");
+        "interrupted response",
+        declaredSize: 4096);
+}
+
+static Task TestArtifactDigestMismatchAsync()
+{
+    var content = new ByteArrayContent(new byte[] { 1 });
+    return AssertRejectedDownloadPreservesDestinationAsync<InvalidDataException>(
+        content,
+        "artifact digest mismatch");
 }
 
 static async Task AssertRejectedDownloadPreservesDestinationAsync<TException>(
     HttpContent content,
-    string description)
+    string description,
+    long declaredSize = 1)
     where TException : Exception
 {
     byte[] existing = Encoding.UTF8.GetBytes("existing destination");
@@ -632,13 +769,13 @@ static async Task AssertRejectedDownloadPreservesDestinationAsync<TException>(
         try
         {
             await transport.DownloadArtifactAsync(
-                new ArtifactLocation
-                {
-                    Bucket = "bucket-name",
-                    Path = "replay/manifest.json",
-                    Format = ArtifactFormat.Json,
-                    Storage = ArtifactStorage.Gcs,
-                },
+                new ArtifactDownloadRequest(
+                    ArtifactStorage.Gcs,
+                    "bucket-name",
+                    "replay/manifest.json",
+                    "json",
+                    declaredSize,
+                    new string('0', 64)),
                 destination,
                 CancellationToken.None);
         }
@@ -652,7 +789,10 @@ static async Task AssertRejectedDownloadPreservesDestinationAsync<TException>(
             existing,
             await File.ReadAllBytesAsync(destination),
             $"{description} destination bytes");
-        AssertEqual(false, File.Exists(destination + ".part"), $"{description} temporary file");
+        AssertEqual(
+            0,
+            Directory.GetFiles(directory, "*.part").Length,
+            $"{description} temporary files");
     }
     finally
     {
@@ -661,6 +801,11 @@ static async Task AssertRejectedDownloadPreservesDestinationAsync<TException>(
             Directory.Delete(directory, recursive: true);
         }
     }
+}
+
+static string ComputeSha256(byte[] bytes)
+{
+    return Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 }
 
 static async Task TestLocalCancellationStopsMonitoringAsync()
@@ -702,6 +847,7 @@ static async Task TestStatefulFacadeAsync()
     using var job = new EmbodiedLabJob(
         CreateTransport(handler, new QueueWebSocketFactory()),
         "submission-1",
+        "navigation_default",
         "capability-1",
         synchronizationContext: null);
     var statuses = new List<ResultStatus>();
@@ -723,6 +869,22 @@ static async Task TestStatefulFacadeAsync()
         "facade result events");
 }
 
+static async Task TestFacadeScenarioIdentityAsync()
+{
+    var handler = new RecordingHttpHandler(_ =>
+        JsonResponse(ResultJson(
+            "completed",
+            ",\"result_bundle\":{\"scenario_id\":\"other-scenario\"}")));
+    using var job = new EmbodiedLabJob(
+        CreateTransport(handler, new QueueWebSocketFactory()),
+        "submission-1",
+        "navigation_default",
+        "capability-1",
+        synchronizationContext: null);
+
+    await AssertThrowsAsync<InvalidOperationException>(() => job.RefreshAsync());
+}
+
 static async Task TestStaleResultUpdatesAreRejectedAsync()
 {
     int resultReadCount = 0;
@@ -741,6 +903,7 @@ static async Task TestStaleResultUpdatesAreRejectedAsync()
     using var job = new EmbodiedLabJob(
         CreateTransport(handler, new QueueWebSocketFactory()),
         "submission-1",
+        "navigation_default",
         "capability-1",
         synchronizationContext: null);
     var statuses = new List<ResultStatus>();
@@ -774,6 +937,7 @@ static async Task TestTerminalResultEnrichmentAsync()
     using var job = new EmbodiedLabJob(
         CreateTransport(handler, new QueueWebSocketFactory()),
         "submission-1",
+        "navigation_default",
         "capability-1",
         synchronizationContext: null);
 
@@ -796,35 +960,14 @@ static async Task TestFacadeModelSelectionAsync()
                     "completed",
                     """
                     ,"result_bundle":{
-                      "scenario_id":"scenario-1",
-                      "job_id":"submission-1",
-                      "status":"completed",
                       "artifacts":{
-                        "model":{"storage":"gcs","bucket":"models","path":"policy.zip","format":"zip"},
                         "onnx_model":{
                           "storage":"gcs",
                           "bucket":"models",
                           "path":"policy.onnx",
                           "format":"onnx",
-                          "target":"onnx-runtime",
-                          "opset_version":17,
-                          "inputs":[
-                            {"name":"obs_0","shape":[-1,3,84,112],"dtype":"float32"},
-                            {"name":"obs_1","shape":[-1,2],"dtype":"float32"}
-                          ],
-                          "output":{"name":"action","layout":["forward","turn"]}
-                        },
-                        "sentis_model":{
-                          "storage":"gcs",
-                          "bucket":"models",
-                          "path":"policy.sentis.onnx",
-                          "format":"onnx",
-                          "target":"unity-sentis",
-                          "opset_version":15,
-                          "inputs":[
-                            {"name":"observation","shape":[1,28226],"dtype":"float32"}
-                          ],
-                          "output":{"name":"action","layout":["forward","turn"]}
+                          "size_bytes":10,
+                          "sha256":"201b4b2329f9a88369562d3f2f178df6d5caa68a0c1089c426f7bc936ca15626"
                         }
                       }
                     }
@@ -843,6 +986,7 @@ static async Task TestFacadeModelSelectionAsync()
     using var job = new EmbodiedLabJob(
         CreateTransport(handler, new QueueWebSocketFactory()),
         "submission-1",
+        "navigation_default",
         "capability-1",
         synchronizationContext: null);
     string directory = Path.Combine(Path.GetTempPath(), $"embodiedlab-job-{Guid.NewGuid():N}");
@@ -865,66 +1009,37 @@ static async Task TestFacadeModelSelectionAsync()
 
 static async Task TestFacadeRejectsModelFallbackAsync()
 {
-    var cases = new (string ArtifactsJson, Type ExceptionType)[]
+    var handler = new RecordingHttpHandler(request =>
     {
-        (
-            "\"model\":{\"storage\":\"gcs\",\"bucket\":\"models\",\"path\":\"policy.zip\",\"format\":\"zip\"}",
-            typeof(InvalidOperationException)),
-        (
-            "\"onnx_model\":{" +
-            "\"storage\":\"gcs\",\"bucket\":\"models\"," +
-            "\"path\":\"policy.zip\",\"format\":\"zip\"," +
-            "\"target\":\"onnx-runtime\",\"opset_version\":17," +
-            "\"inputs\":[{\"name\":\"obs_0\",\"shape\":[-1,3,84,112]," +
-            "\"dtype\":\"float32\"},{\"name\":\"obs_1\",\"shape\":[-1,2]," +
-            "\"dtype\":\"float32\"}]," +
-            "\"output\":{\"name\":\"action\",\"layout\":[\"forward\",\"turn\"]}}",
-            typeof(InvalidDataException)),
-    };
-
-    foreach ((string artifactsJson, Type exceptionType) in cases)
-    {
-        var handler = new RecordingHttpHandler(request =>
+        if (request.Uri.AbsolutePath.EndsWith("/results/submission-1", StringComparison.Ordinal))
         {
-            if (request.Uri.AbsolutePath.EndsWith("/results/submission-1", StringComparison.Ordinal))
-            {
-                string resultBundle =
-                    ",\"result_bundle\":{" +
-                    "\"scenario_id\":\"scenario-1\"," +
-                    "\"job_id\":\"submission-1\"," +
-                    "\"status\":\"completed\"," +
-                    "\"artifacts\":{" + artifactsJson + "}}";
-                return JsonResponse(
-                    ResultJson("completed", resultBundle));
-            }
-
-            throw new InvalidOperationException($"Unexpected artifact request: {request.Uri}");
-        });
-        using var job = new EmbodiedLabJob(
-            CreateTransport(handler, new QueueWebSocketFactory()),
-            "submission-1",
-            "capability-1",
-            synchronizationContext: null);
-        await job.RefreshAsync();
-
-        bool rejected = false;
-        try
-        {
-            await job.DownloadModelAsync(Path.Combine(Path.GetTempPath(), "unused-policy.onnx"));
-        }
-        catch (Exception exception) when (exceptionType.IsInstanceOfType(exception))
-        {
-            rejected = true;
+            return JsonResponse(ResultJson(
+                "completed",
+                ",\"result_bundle\":{\"artifacts\":{\"onnx_model\":null}}"));
         }
 
-        AssertEqual(true, rejected, $"{exceptionType.Name} model rejection");
-        AssertEqual(1, handler.Requests.Count, "model rejection request count");
-    }
+        throw new InvalidOperationException($"Unexpected artifact request: {request.Uri}");
+    });
+    using var job = new EmbodiedLabJob(
+        CreateTransport(handler, new QueueWebSocketFactory()),
+        "submission-1",
+        "navigation_default",
+        "capability-1",
+        synchronizationContext: null);
+    await AssertThrowsAsync<InvalidDataException>(() => job.RefreshAsync());
+    AssertEqual(1, handler.Requests.Count, "model rejection request count");
 }
 
 static async Task TestFacadeReplayChunkAsync()
 {
-    byte[] expected = Encoding.UTF8.GetBytes("compressed replay");
+    string fixturePath = Path.GetFullPath(Path.Combine(
+        AppContext.BaseDirectory,
+        "../../../../../Tests~/Fixtures/navigation_default_replay_log.jsonl"));
+    JObject replayStep = JObject.Parse(File.ReadLines(fixturePath).First());
+    replayStep["scenario_id"] = "scenario-1";
+    replayStep["checkpoint_step"] = 5000;
+    byte[] expected = GzipUtf8(
+        replayStep.ToString(Newtonsoft.Json.Formatting.None) + "\n");
     var handler = new RecordingHttpHandler(request =>
     {
         if (request.Uri.AbsolutePath.EndsWith("/results/submission-1", StringComparison.Ordinal))
@@ -961,6 +1076,7 @@ static async Task TestFacadeReplayChunkAsync()
     using var job = new EmbodiedLabJob(
         CreateTransport(handler, new QueueWebSocketFactory()),
         "submission-1",
+        "scenario-1",
         "capability-1",
         synchronizationContext: null);
     string directory = Path.Combine(Path.GetTempPath(), $"embodiedlab-job-{Guid.NewGuid():N}");
@@ -969,10 +1085,15 @@ static async Task TestFacadeReplayChunkAsync()
     try
     {
         await job.RefreshAsync();
-        var chunk = new ReplayBundleChunk
+        var chunk = new EvalReplayBundleChunk
         {
+            CheckpointStep = 5000,
             Path = "eval/checkpoint_00005000.jsonl.gz",
-            Format = ReplayBundleChunkFormat.JsonlGz,
+            Format = EvalReplayBundleChunkFormat.JsonlGz,
+            SizeBytes = expected.Length,
+            Sha256 = ComputeSha256(expected),
+            StepCount = 1,
+            EpisodeCount = 1,
         };
         await job.DownloadReplayChunkAsync(chunk, destination);
         AssertSequence(
@@ -1029,6 +1150,18 @@ static async Task TestFacadeReplayChunkAsync()
     }
 }
 
+static byte[] GzipUtf8(string value)
+{
+    using var destination = new MemoryStream();
+    using (var gzip = new GZipStream(destination, CompressionMode.Compress, leaveOpen: true))
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(value);
+        gzip.Write(bytes, 0, bytes.Length);
+    }
+
+    return destination.ToArray();
+}
+
 static async Task TestConcurrentCompletionMonitorIsRejectedAsync()
 {
     var handler = new RecordingHttpHandler(
@@ -1039,6 +1172,7 @@ static async Task TestConcurrentCompletionMonitorIsRejectedAsync()
     using var job = new EmbodiedLabJob(
         CreateTransport(handler, new QueueWebSocketFactory(socket)),
         "submission-1",
+        "navigation_default",
         "capability-1",
         synchronizationContext: null);
     using var cancellation = new CancellationTokenSource();
@@ -1070,7 +1204,7 @@ static async Task TestConcurrentCompletionMonitorIsRejectedAsync()
 }
 
 static EmbodiedLabTransport CreateTransport(
-    RecordingHttpHandler handler,
+    HttpMessageHandler handler,
     IResultWebSocketFactory factory,
     ResultMonitorTiming? timing = null,
     Func<TimeSpan, CancellationToken, Task>? delayAsync = null)
@@ -1119,7 +1253,49 @@ static HttpResponseMessage JsonResponse(
 
 static string ResultJson(string status, string additionalProperties = "")
 {
-    return $$"""{"submission_id":"submission-1","status":"{{status}}"{{additionalProperties}}}""";
+    JObject result;
+    if (string.Equals(status, "completed", StringComparison.Ordinal))
+    {
+        string fixturePath = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "../../../../../Tests~/Fixtures/navigation_completed_result_document.json"));
+        result = JObject.Parse(File.ReadAllText(fixturePath));
+    }
+    else
+    {
+        result = new JObject
+        {
+            ["submission_id"] = "submission-1",
+            ["status"] = status,
+            ["progress"] = new JObject
+            {
+                ["phase"] = status,
+                ["current_step"] = 0,
+                ["total_steps"] = 5000,
+                ["message"] = $"Training {status}",
+            },
+            ["error"] = string.Equals(status, "failed", StringComparison.Ordinal)
+                ? "Training failed"
+                : JValue.CreateNull(),
+            ["result_bundle"] = JValue.CreateNull(),
+            ["updated_at"] = "2026-07-20T01:00:00Z",
+        };
+    }
+
+    if (!string.IsNullOrWhiteSpace(additionalProperties))
+    {
+        JObject overrides = JObject.Parse(
+            "{" + additionalProperties.TrimStart().TrimStart(',') + "}");
+        result.Merge(
+            overrides,
+            new JsonMergeSettings
+            {
+                MergeArrayHandling = MergeArrayHandling.Replace,
+                MergeNullValueHandling = MergeNullValueHandling.Merge,
+            });
+    }
+
+    return result.ToString(Newtonsoft.Json.Formatting.None);
 }
 
 static ScriptedFrame TextFrame(
@@ -1224,6 +1400,44 @@ internal sealed class RecordingHttpHandler : HttpMessageHandler
         request.Headers.TryGetValues(name, out IEnumerable<string>? values)
             ? values.Single()
             : null;
+}
+
+internal sealed class CoordinatedArtifactHandler : HttpMessageHandler
+{
+    private readonly byte[] first;
+    private readonly byte[] second;
+    private readonly TaskCompletionSource<bool> bothRequests = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
+    private int requestCount;
+
+    internal CoordinatedArtifactHandler(byte[] first, byte[] second)
+    {
+        this.first = first;
+        this.second = second;
+    }
+
+    protected override async Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        if (Interlocked.Increment(ref requestCount) == 2)
+        {
+            bothRequests.TrySetResult(true);
+        }
+
+        await bothRequests.Task.WaitAsync(cancellationToken);
+        string path = request.RequestUri?.AbsolutePath ?? throw new InvalidOperationException(
+            "Artifact request URI is missing.");
+        byte[] content = path.EndsWith("/first.onnx", StringComparison.Ordinal)
+            ? first
+            : path.EndsWith("/second.onnx", StringComparison.Ordinal)
+                ? second
+                : throw new InvalidOperationException($"Unexpected artifact path: {path}");
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(content),
+        };
+    }
 }
 
 internal sealed class RepeatingReadStream : Stream

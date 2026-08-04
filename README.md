@@ -54,8 +54,8 @@ and enter the API and result WebSocket base URLs in Play Mode.
 
 The tutorial has six ordered sections: load the exact scenario, configure
 endpoints, submit and monitor one job, download artifacts, play the deterministic
-evaluation replay, and run the downloaded ONNX policy on Windows x64. Each
-responsibility lives in a small sample-internal file. Replay and inference use
+evaluation replay, and run the downloaded ONNX policy on Windows x64. The
+responsibilities are separated into sample-internal classes. Replay and inference use
 the same visible robot and are mutually exclusive. The tutorial intentionally
 does not include EnvForge's scene authoring, job history, or credential store.
 
@@ -70,6 +70,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using EmbodiedLab.Contracts;
 using EmbodiedLab.Unity;
+using UnityEngine;
 
 public async Task RunTrainingAsync(
     ScenarioBundle scenario,
@@ -108,18 +109,17 @@ loopback (`localhost`, an IPv4 loopback address, or an IPv6 loopback address),
 so local development remains possible without exposing job data or cancellation
 capabilities over a remote plaintext connection.
 
-`SubmitAsync` creates the submission and starts training. Result monitoring uses
-the WebSocket stream while it is healthy; HTTP result reads are reserved for
-explicit `RefreshAsync` calls and recovery after a failed, disconnected, or
-silent stream. `ResultUpdated` is dispatched through the synchronization
-context captured when the job handle is created, which is normally Unity's main
-thread context.
+`SubmitAsync` sends one submission request. The server validates and stores the
+scenario, creates the queued result, and owns training dispatch. Result
+monitoring uses the WebSocket stream while it is healthy; HTTP result reads are
+reserved for explicit `RefreshAsync` calls and recovery after a failed,
+disconnected, or silent stream. `ResultUpdated` is dispatched through the
+synchronization context captured when the job handle is created, which is
+normally Unity's main thread context.
 
-If submission creation succeeds but the separate training-start request cannot
-be confirmed, `SubmitAsync` throws `EmbodiedLabTrainingStartException`. Its
-`Job` property retains the submission ID and cancellation capability so the
-caller can persist, monitor, or cancel the submission. The caller owns and must
-dispose that recoverable job handle.
+If submission creation fails, `SubmitAsync` fails without returning a job
+handle. Dispatch or training failures after acceptance are server-owned and are
+reported through the job's terminal `failed` Result Document.
 
 Submission creation uses a client-generated idempotency key and cancellation
 capability. If the HTTP response is lost ambiguously, the transport retries once
@@ -149,7 +149,9 @@ string manifestPath = Path.Combine(
     "replay",
     "manifest.json");
 ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(manifestPath);
-ReplayBundleChunk selectedChunk = manifest.Chunks.First();
+EvalReplayBundleChunk selectedChunk = manifest.Chunks
+    .OfType<EvalReplayBundleChunk>()
+    .First();
 string replayChunkPath = Path.Combine(
     outputDirectory,
     "replay",
@@ -169,31 +171,34 @@ otherwise in-memory JSON Lines without creating a temporary file.
 
 Artifact and replay reads fail closed when their fixed resource budgets are
 exceeded. JSON artifacts are limited to 1 MiB, JSONL and compressed JSONL
-artifacts to 64 MiB, and ONNX or ZIP artifacts to 1 GiB. Downloads check both
-`Content-Length` and the bytes actually streamed. A rejected or interrupted
-download removes its temporary `.part` file and leaves an existing destination
-unchanged.
+artifacts to 64 MiB, and ONNX artifacts to 1 GiB. Downloads require the
+contract's exact `size_bytes` and lowercase SHA-256 digest, then check them
+against `Content-Length` when present and the bytes actually streamed. A
+rejected or interrupted download removes its temporary `.part` file and leaves
+an existing destination unchanged.
 
 Replay manifests are limited to 1 MiB, 4,096 chunks, 1,024 characters per chunk
 path, and 100,000 declared steps per chunk. Replay readers allow at most 256 MiB
 after decompression, 1 MiB per UTF-8 JSONL row, and 100,000 returned steps. These
 budgets are internal invariants rather than configurable public API.
 
-Persist both `SubmissionId` and `CancelToken` if a job must survive an Editor or
-application restart:
+Persist `SubmissionId`, `ScenarioId`, and the optional `CancelToken` if a job
+must survive an Editor or application restart:
 
 ```csharp
 EmbodiedLabJob restored = EmbodiedLabJob.Restore(
     endpoints,
     savedSubmissionId,
+    savedScenarioId,
     savedCancelToken);
 ```
 
-The cancellation token returned by the server is a capability: store it as a
-secret and do not log it. Restoring without it still permits monitoring and
-downloads, but `CanCancel` is false. A C# `CancellationToken` only stops the
-local SDK operation. Call `CancelAsync` to request cancellation of the cloud
-job.
+Persist the exact Scenario ID with the submission ID so restored result and
+Replay identities remain verifiable. The cancellation token returned by the
+server is a capability: store it as a secret and do not log it. Restoring
+without it still permits monitoring and downloads, but `CanCancel` is false. A
+C# `CancellationToken` only stops the local SDK operation. Call `CancelAsync`
+to request cancellation of the cloud job.
 
 ## Development
 
@@ -220,10 +225,15 @@ dotnet run --project Tools~/ContractCodeGen/ContractCodeGen.csproj \
 of every synchronized schema. The CI workflow regenerates the DTOs, compiles
 them, exercises the canonical JSON fixtures, and rejects drift.
 
-The generated DTOs are a serialization contract, not a client-side validation
-layer. They retain Newtonsoft.Json wire-name, enum, and discriminator metadata,
-but intentionally omit `DataAnnotations`. DTOs store only declared fields unless
-the upstream schema explicitly enables additional properties.
+The generated DTOs are the structural serialization contract rather than a
+general JSON Schema validator. They retain Newtonsoft.Json wire-name, enum, and
+discriminator metadata but intentionally omit `DataAnnotations`. Result JSON is
+semantically validated by the transport before it is published, and Replay
+manifest/row JSON is semantically validated by `EmbodiedLabReplay`. Scenario
+JSON is structurally deserialized by `ScenarioBundleJson`; the EmbodiedLab server
+owns complete Scenario validation when a submission is accepted. DTOs store only
+declared fields unless the upstream schema explicitly enables additional
+properties.
 
 Run the local validation in both supported Unity baselines with:
 

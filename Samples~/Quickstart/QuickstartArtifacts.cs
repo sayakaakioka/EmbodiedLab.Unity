@@ -32,6 +32,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         internal string ModelPath { get; private set; } = "-";
 
+        internal OnnxModelArtifactLocation? ModelContract { get; private set; }
+
         internal string ReplayPath { get; private set; } = "-";
 
         internal void Reset()
@@ -43,6 +45,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             }
 
             ModelPath = "-";
+            ModelContract = null;
             ReplayPath = "-";
         }
 
@@ -50,7 +53,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             EmbodiedLabJob? job,
             string persistentDataPath)
         {
-            if (job == null || ModelPath == "-")
+            if (job == null || ModelPath == "-" || ModelContract == null)
             {
                 return false;
             }
@@ -88,6 +91,9 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 CreateParentDirectory(destinationPath, "Model");
                 ReportActivity("Downloading the trained model...");
                 await job.DownloadModelAsync(destinationPath, cancellationToken);
+                ModelContract = job.LatestResult?.ResultBundle?.Artifacts?.OnnxModel ??
+                    throw new InvalidDataException(
+                        "The completed result has no ONNX model metadata.");
                 ModelPath = destinationPath;
                 ReportActivity("Model downloaded.");
             }
@@ -139,9 +145,11 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 ReportActivity("Downloading the replay manifest...");
                 await job.DownloadReplayBundleAsync(manifestPath, cancellationToken);
 
-                ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(manifestPath);
-                ValidateReplayManifest(job.SubmissionId, scenarioId, manifest);
-                ReplayBundleChunk selectedChunk =
+                ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(
+                    manifestPath,
+                    job.SubmissionId,
+                    scenarioId);
+                EvalReplayBundleChunk selectedChunk =
                     QuickstartReplayTimeline.SelectLatestDeterministicEvaluationChunk(
                         manifest);
                 string chunkPath = QuickstartLocalPaths.GetReplayChunkPath(
@@ -157,7 +165,11 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                     cancellationToken);
 
                 IReadOnlyList<ReplayLogStep> steps =
-                    EmbodiedLabReplay.ReadSteps(chunkPath);
+                    EmbodiedLabReplay.ReadChunk(
+                        chunkPath,
+                        selectedChunk,
+                        job.SubmissionId,
+                        manifest.ScenarioId);
                 QuickstartReplayTimeline.ValidateSelectedChunkSteps(
                     job.SubmissionId,
                     manifest.ScenarioId,
@@ -179,30 +191,6 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             finally
             {
                 operation = Operation.None;
-            }
-        }
-
-        private static void ValidateReplayManifest(
-            string submissionId,
-            string scenarioId,
-            ReplayBundleManifest manifest)
-        {
-            if (!string.Equals(
-                manifest.JobId,
-                submissionId,
-                StringComparison.Ordinal))
-            {
-                throw new InvalidDataException(
-                    "Replay manifest belongs to a different submission.");
-            }
-
-            if (!string.Equals(
-                manifest.ScenarioId,
-                scenarioId,
-                StringComparison.Ordinal))
-            {
-                throw new InvalidDataException(
-                    "Replay manifest belongs to a different scenario.");
             }
         }
 

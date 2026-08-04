@@ -96,6 +96,7 @@ credentials or build a history UI:
 EmbodiedLabJob restored = EmbodiedLabJob.Restore(
     endpoints,
     submissionId,
+    scenarioId,
     cancelToken);
 ```
 
@@ -155,7 +156,9 @@ Windows x64 Editor and Standalone. Other operating systems remain unsupported.
 
 Read the inference files in this order:
 
-1. `QuickstartOnnxContract.cs` validates `obs_0`, `obs_1`, and action metadata.
+1. `QuickstartOnnxContract.cs` resolves observation names, shapes, and action
+   order from the Scenario and downloaded model metadata, then checks the ONNX
+   session against them.
 2. `QuickstartSemanticCamera.cs` captures the submitted semantic camera.
 3. `QuickstartInferenceMath.cs` creates observations and clamps actions.
 4. `QuickstartOnnxPolicy.cs` owns one cached ONNX session.

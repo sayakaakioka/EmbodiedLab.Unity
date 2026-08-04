@@ -144,7 +144,7 @@ class QuickstartSampleTests(unittest.TestCase):
             "DownloadReplayBundleAsync",
             "EmbodiedLabReplay.ReadManifest",
             "DownloadReplayChunkAsync",
-            "EmbodiedLabReplay.ReadSteps",
+            "EmbodiedLabReplay.ReadChunk",
         ):
             with self.subTest(artifact_call=required_call):
                 self.assertIn(required_call, artifacts)
@@ -238,6 +238,7 @@ class QuickstartSampleTests(unittest.TestCase):
                 "vertical_fov_degrees": 70.0,
                 "near_clip_meters": 0.05,
                 "far_clip_meters": 100.0,
+                "observation_name": "obs_0",
             },
         )
 
@@ -266,8 +267,11 @@ class QuickstartSampleTests(unittest.TestCase):
                 controller.index("worldBuilder.Build(scenario);"),
             ),
         )
-        self.assertIn("ForwardMetersPerDecision = 0.2f", runner)
-        self.assertIn("TurnDegreesPerDecision = 15f", runner)
+        self.assertIn("actionSpace.StepDurationSeconds", runner)
+        self.assertIn("actionSpace.ForwardStepMeters", runner)
+        self.assertIn("actionSpace.TurnDegreesPerStep", runner)
+        self.assertNotIn("ForwardMetersPerDecision = 0.2f", runner)
+        self.assertNotIn("TurnDegreesPerDecision = 15f", runner)
         self.assertNotIn(
             "Sentis", "\n".join(path.name for path in SAMPLE_DIRECTORY.iterdir())
         )

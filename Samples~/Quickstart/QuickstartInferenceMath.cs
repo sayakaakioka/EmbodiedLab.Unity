@@ -1,7 +1,9 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.IO;
+using EmbodiedLab.Contracts;
 using UnityEngine;
 
 namespace EmbodiedLab.Unity.Samples.Quickstart
@@ -61,29 +63,45 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             Vector3 robotPosition,
             float robotYawDegrees,
             Vector3 goalPosition,
+            IReadOnlyList<Values> values,
             float[] destination)
         {
-            if (destination == null ||
-                destination.Length != QuickstartOnnxContract.NumericValueCount)
+            if (values == null)
+            {
+                throw new ArgumentNullException(nameof(values));
+            }
+
+            if (destination == null || destination.Length != values.Count)
             {
                 throw new ArgumentException(
-                    "Numeric observation destination must contain exactly two values.",
+                    "Numeric observation destination must match the Scenario value layout.",
                     nameof(destination));
             }
 
             float deltaX = goalPosition.x - robotPosition.x;
             float deltaZ = goalPosition.z - robotPosition.z;
             float targetDegrees = Mathf.Atan2(deltaX, deltaZ) * Mathf.Rad2Deg;
-            destination[0] = Mathf.Repeat(
+            float goalAngleDegrees = Mathf.Repeat(
                 targetDegrees - robotYawDegrees + 180f,
                 360f) - 180f;
-            destination[1] = Mathf.Sqrt(deltaX * deltaX + deltaZ * deltaZ);
+            float goalDistanceMeters = Mathf.Sqrt(deltaX * deltaX + deltaZ * deltaZ);
+            for (int index = 0; index < values.Count; index++)
+            {
+                destination[index] = values[index] switch
+                {
+                    Values.GoalAngleDegrees => goalAngleDegrees,
+                    Values.GoalDistanceMeters => goalDistanceMeters,
+                    _ => throw new InvalidDataException(
+                        $"Unsupported goal-vector value '{values[index]}'."),
+                };
+            }
         }
 
         internal static void ConvertRgbToVerticallyFlippedChw(
             Color32[] source,
             int width,
             int height,
+            IReadOnlyList<string> channelLayout,
             float[] destination)
         {
             if (source == null || source.Length != width * height)
@@ -93,11 +111,17 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                     nameof(source));
             }
 
+            if (channelLayout == null)
+            {
+                throw new ArgumentNullException(nameof(channelLayout));
+            }
+
             int planeSize = width * height;
-            if (destination == null || destination.Length != planeSize * 3)
+            if (destination == null ||
+                destination.Length != planeSize * channelLayout.Count)
             {
                 throw new ArgumentException(
-                    "CHW destination must contain three complete color planes.",
+                    "CHW destination must match the declared channel layout.",
                     nameof(destination));
             }
 
@@ -109,9 +133,18 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                     int sourceIndex = flippedRow * width + column;
                     int targetIndex = row * width + column;
                     Color32 pixel = source[sourceIndex];
-                    destination[targetIndex] = pixel.r / 255f;
-                    destination[planeSize + targetIndex] = pixel.g / 255f;
-                    destination[planeSize * 2 + targetIndex] = pixel.b / 255f;
+                    for (int channel = 0; channel < channelLayout.Count; channel++)
+                    {
+                        byte value = channelLayout[channel] switch
+                        {
+                            "channel_0_unused" => pixel.r,
+                            "channel_1_traversable" => pixel.g,
+                            "channel_2_blocked_or_background" => pixel.b,
+                            _ => throw new InvalidDataException(
+                                $"Unsupported semantic channel '{channelLayout[channel]}'."),
+                        };
+                        destination[channel * planeSize + targetIndex] = value / 255f;
+                    }
                 }
             }
         }

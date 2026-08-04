@@ -368,12 +368,15 @@ namespace UnityEngine
 
     public sealed class Texture2D : Object
     {
+        private readonly int pixelCount;
+
         public Texture2D(
             int width,
             int height,
             TextureFormat textureFormat,
             bool mipChain)
         {
+            pixelCount = checked(width * height);
         }
 
         public void ReadPixels(Rect source, int destinationX, int destinationY)
@@ -386,10 +389,8 @@ namespace UnityEngine
 
         public Color32[] GetPixels32()
         {
-            return new Color32[QuickstartImageValueCount / 3];
+            return new Color32[pixelCount];
         }
-
-        private const int QuickstartImageValueCount = 3 * 84 * 112;
     }
 
     public enum TextureFormat

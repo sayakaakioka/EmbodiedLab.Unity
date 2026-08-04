@@ -74,6 +74,13 @@ class RunUnityTestsTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+        fixtures = repository_root / "Tests~" / "Fixtures"
+        fixtures.mkdir(parents=True)
+        (fixtures / "navigation_completed_result_document.json").write_text(
+            "{}",
+            encoding="utf-8",
+        )
+
         project_path = repository_root / "TestProjects~" / f"Unity{unity_version}"
         (project_path / "Assets").mkdir(parents=True)
         return project_path

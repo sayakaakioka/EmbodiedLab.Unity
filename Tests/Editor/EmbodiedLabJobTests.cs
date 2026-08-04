@@ -14,9 +14,11 @@ namespace EmbodiedLab.Unity.Tests
             using EmbodiedLabJob job = EmbodiedLabJob.Restore(
                 Endpoints,
                 "submission-1",
+                "navigation_default",
                 "capability-1");
 
             Assert.That(job.SubmissionId, Is.EqualTo("submission-1"));
+            Assert.That(job.ScenarioId, Is.EqualTo("navigation_default"));
             Assert.That(job.CancelToken, Is.EqualTo("capability-1"));
             Assert.That(job.CanCancel, Is.True);
             Assert.That(job.LatestResult, Is.Null);
@@ -28,7 +30,8 @@ namespace EmbodiedLab.Unity.Tests
         {
             using EmbodiedLabJob job = EmbodiedLabJob.Restore(
                 Endpoints,
-                "submission-1");
+                "submission-1",
+                "navigation_default");
 
             Assert.That(job.CancelToken, Is.Null);
             Assert.That(job.CanCancel, Is.False);

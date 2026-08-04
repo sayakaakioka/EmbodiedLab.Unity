@@ -1,14 +1,13 @@
 {
   "files": {
-    "replay-bundle-manifest.schema.json": "20808fc264b3b7a0a377cbc72cc91a258ed4e24a1298bc789c3f98c408c9144d",
-    "replay-log-step.schema.json": "bec34bb369924bac4797d1b50e054d48119feb9dd2acc2284683039b4e147356",
-    "result-bundle.schema.json": "879234f6240b31605033dee076d4e9cb3851264ac6890145be73b49572494582",
-    "result-document.schema.json": "3d357840286e8e90ee3f5e1c3b58ac1b0140170165c268bfe13f37b04df63360",
-    "scenario-bundle.schema.json": "61be1fddb3409ab1ca571cfdb5f0d74dfc7be61362eebd07fa83740f6970bd41",
-    "submission-response.schema.json": "6471f928dfef688e03db0ce22c3c5d3cdca5598dd11e40f2734491331a1b4f83",
-    "training-response.schema.json": "792728aa7a0ba711a7508017fcd51e779e2a5e135438d6405cca0bf4853004b7"
+    "replay-bundle-manifest.schema.json": "ea2ae44e09bec5115415dda7e2990a93f0ea63d259dd2491b2fc82e159efd089",
+    "replay-log-step.schema.json": "9e1c75d9a10e5fb64f96bbb4f8618a7bf3692cea2e0c7175e61141be4008a203",
+    "result-bundle.schema.json": "76e1394573285f4b9ee9012141cc14dd029560f06035fa8c4649bec810a7807c",
+    "result-document.schema.json": "e2b05a785c431eeef6627d67629d738ce32a3e82086e03e8928e054f83ffdea9",
+    "scenario-bundle.schema.json": "ec9f8acb85a8f2bb105b5437c4fe6419b643e07d535ae3408fc2c25e803fcb79",
+    "submission-response.schema.json": "6471f928dfef688e03db0ce22c3c5d3cdca5598dd11e40f2734491331a1b4f83"
   },
   "repository": "https://github.com/sayakaakioka/EmbodiedLab",
-  "revision": "a809e9c68288c3a92ad67abd8641d0f03dc06d7e",
+  "revision": "94d48ed763b9d1da0c19810fb449c2191fa2c727",
   "schemaVersion": "v0"
 }

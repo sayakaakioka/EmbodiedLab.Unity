@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
+using System.Threading;
 using EmbodiedLab.Contracts;
 using EmbodiedLab.Unity.Internal;
 using Newtonsoft.Json;
@@ -24,6 +25,28 @@ namespace EmbodiedLab.Unity
         public static ReplayBundleManifest ReadManifest(string path)
         {
             return ReadManifest(path, ReplayResourceLimits.Default);
+        }
+
+        public static ReplayBundleManifest ReadManifest(
+            string path,
+            string expectedJobId,
+            string expectedScenarioId)
+        {
+            ReplayBundleManifest manifest = ReadManifest(path);
+            if (!string.Equals(
+                    manifest.JobId,
+                    RequireIdentity(expectedJobId, nameof(expectedJobId)),
+                    StringComparison.Ordinal) ||
+                !string.Equals(
+                    manifest.ScenarioId,
+                    RequireIdentity(expectedScenarioId, nameof(expectedScenarioId)),
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    "Replay manifest belongs to a different job or Scenario.");
+            }
+
+            return manifest;
         }
 
         internal static ReplayBundleManifest ReadManifest(
@@ -60,20 +83,75 @@ namespace EmbodiedLab.Unity
             return ReadSteps(path, ReplayResourceLimits.Default);
         }
 
+        public static IReadOnlyList<ReplayLogStep> ReadChunk(
+            string path,
+            ReplayBundleChunk chunk,
+            string expectedJobId,
+            string expectedScenarioId)
+        {
+            return ReadChunk(
+                path,
+                chunk,
+                expectedJobId,
+                expectedScenarioId,
+                CancellationToken.None);
+        }
+
+        internal static IReadOnlyList<ReplayLogStep> ReadChunk(
+            string path,
+            ReplayBundleChunk chunk,
+            string expectedJobId,
+            string expectedScenarioId,
+            CancellationToken cancellationToken)
+        {
+            if (chunk == null)
+            {
+                throw new ArgumentNullException(nameof(chunk));
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            IReadOnlyList<ReplayLogStep> steps = ReadSteps(
+                path,
+                ReplayResourceLimits.Default,
+                compressed: IsCompressedChunk(chunk),
+                cancellationToken);
+            ValidateChunkSteps(
+                chunk,
+                steps,
+                RequireIdentity(expectedJobId, nameof(expectedJobId)),
+                RequireIdentity(expectedScenarioId, nameof(expectedScenarioId)),
+                cancellationToken);
+            return steps;
+        }
+
         internal static IReadOnlyList<ReplayLogStep> ReadSteps(
             string path,
             ReplayResourceLimits limits)
         {
+            return ReadSteps(
+                path,
+                limits,
+                compressed: path.EndsWith(".gz", StringComparison.OrdinalIgnoreCase),
+                CancellationToken.None);
+        }
+
+        private static IReadOnlyList<ReplayLogStep> ReadSteps(
+            string path,
+            ReplayResourceLimits limits,
+            bool compressed,
+            CancellationToken cancellationToken)
+        {
             RequirePath(path);
             RequireLimits(limits);
+            cancellationToken.ThrowIfCancellationRequested();
             using var file = File.OpenRead(path);
-            if (path.EndsWith(".gz", StringComparison.OrdinalIgnoreCase))
+            if (compressed)
             {
                 using var gzip = new GZipStream(file, CompressionMode.Decompress);
-                return ReadSteps(gzip, limits);
+                return ReadSteps(gzip, limits, cancellationToken);
             }
 
-            return ReadSteps(file, limits);
+            return ReadSteps(file, limits, cancellationToken);
         }
 
         public static IReadOnlyList<ReplayLogStep> ParseSteps(string jsonLines)
@@ -99,7 +177,7 @@ namespace EmbodiedLab.Unity
             }
 
             using var reader = new StringReader(jsonLines);
-            return ReadSteps(reader, limits);
+            return ReadSteps(reader, limits, CancellationToken.None);
         }
 
         internal static void ValidateChunkMetadata(ReplayBundleChunk chunk)
@@ -112,9 +190,129 @@ namespace EmbodiedLab.Unity
             ValidateChunkMetadata(chunk, ReplayResourceLimits.Default);
         }
 
+        internal static void ValidateChunkSteps(
+            ReplayBundleChunk chunk,
+            IReadOnlyList<ReplayLogStep> steps,
+            string expectedJobId,
+            string expectedScenarioId,
+            CancellationToken cancellationToken = default)
+        {
+            if (chunk == null)
+            {
+                throw new ArgumentNullException(nameof(chunk));
+            }
+
+            if (steps == null)
+            {
+                throw new ArgumentNullException(nameof(steps));
+            }
+
+            int expectedStepCount = GetChunkStepCount(chunk);
+            if (steps.Count != expectedStepCount)
+            {
+                throw new InvalidDataException(
+                    "Replay chunk step count does not match its manifest entry.");
+            }
+
+            ReplayLogStepPhase expectedPhase;
+            ReplayLogStepPolicyMode expectedPolicyMode;
+            int? expectedEpisodeCount;
+            int? expectedStartStep;
+            int? expectedEndStep;
+            switch (chunk)
+            {
+                case TrainReplayBundleChunk training:
+                    expectedPhase = ReplayLogStepPhase.Train;
+                    expectedPolicyMode = ReplayLogStepPolicyMode.Stochastic;
+                    expectedEpisodeCount = null;
+                    expectedStartStep = training.StartStep;
+                    expectedEndStep = training.EndStep;
+                    if (training.StepCount <= 0 ||
+                        training.StartStep < 0 ||
+                        training.EndStep < training.StartStep ||
+                        training.CheckpointStep != training.EndStep)
+                    {
+                        throw new InvalidDataException(
+                            "Training replay chunk step metadata is inconsistent.");
+                    }
+
+                    break;
+                case EvalReplayBundleChunk evaluation:
+                    expectedPhase = ReplayLogStepPhase.Eval;
+                    expectedPolicyMode = ReplayLogStepPolicyMode.Deterministic;
+                    expectedEpisodeCount = evaluation.EpisodeCount;
+                    expectedStartStep = null;
+                    expectedEndStep = null;
+                    break;
+                default:
+                    throw new InvalidDataException(
+                        "Replay manifest contains an unsupported chunk type.");
+            }
+
+            var episodeIds = new HashSet<string>(StringComparer.Ordinal);
+            int minimumCheckpointStep = int.MaxValue;
+            int maximumCheckpointStep = int.MinValue;
+            foreach (ReplayLogStep step in steps)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (step == null ||
+                    !string.Equals(step.JobId, expectedJobId, StringComparison.Ordinal) ||
+                    !string.Equals(
+                        step.ScenarioId,
+                        expectedScenarioId,
+                        StringComparison.Ordinal) ||
+                    step.Phase != expectedPhase ||
+                    step.PolicyMode != expectedPolicyMode)
+                {
+                    throw new InvalidDataException(
+                        "Replay chunk contains a step outside its manifest entry.");
+                }
+
+                if (expectedStartStep.HasValue)
+                {
+                    if (step.CheckpointStep < expectedStartStep.Value ||
+                        step.CheckpointStep > expectedEndStep!.Value)
+                    {
+                        throw new InvalidDataException(
+                            "Replay chunk contains a step outside its manifest range.");
+                    }
+
+                    minimumCheckpointStep = Math.Min(
+                        minimumCheckpointStep,
+                        step.CheckpointStep);
+                    maximumCheckpointStep = Math.Max(
+                        maximumCheckpointStep,
+                        step.CheckpointStep);
+                }
+                else if (step.CheckpointStep != chunk.CheckpointStep)
+                {
+                    throw new InvalidDataException(
+                        "Replay chunk contains a step outside its manifest checkpoint.");
+                }
+
+                episodeIds.Add(step.EpisodeId);
+            }
+
+            if (expectedStartStep.HasValue &&
+                (minimumCheckpointStep != expectedStartStep.Value ||
+                    maximumCheckpointStep != expectedEndStep!.Value))
+            {
+                throw new InvalidDataException(
+                    "Training replay chunk range does not match its manifest entry.");
+            }
+
+            if (expectedEpisodeCount.HasValue &&
+                episodeIds.Count != expectedEpisodeCount.Value)
+            {
+                throw new InvalidDataException(
+                    "Replay chunk episode count does not match its manifest entry.");
+            }
+        }
+
         private static IReadOnlyList<ReplayLogStep> ReadSteps(
             Stream stream,
-            ReplayResourceLimits limits)
+            ReplayResourceLimits limits,
+            CancellationToken cancellationToken)
         {
             using var limited = new ResourceLimitedReadStream(
                 stream,
@@ -127,20 +325,23 @@ namespace EmbodiedLab.Unity
                 detectEncodingFromByteOrderMarks: true,
                 bufferSize: 4096,
                 leaveOpen: false);
-            return ReadSteps(reader, limits);
+            return ReadSteps(reader, limits, cancellationToken);
         }
 
-        private static IReadOnlyList<ReplayLogStep> ReadSteps(
+        internal static IReadOnlyList<ReplayLogStep> ReadSteps(
             TextReader reader,
-            ReplayResourceLimits limits)
+            ReplayResourceLimits limits,
+            CancellationToken cancellationToken)
         {
             var steps = new List<ReplayLogStep>();
             var lineReader = new BoundedLineReader(
                 reader,
-                limits.MaximumLineBytes);
+                limits.MaximumLineBytes,
+                cancellationToken);
             string? line;
             while ((line = lineReader.ReadLine()) != null)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (Encoding.UTF8.GetByteCount(line) > limits.MaximumLineBytes)
                 {
                     throw new InvalidDataException(
@@ -165,6 +366,7 @@ namespace EmbodiedLab.Unity
                     SerializerSettings) ??
                     throw new JsonSerializationException(
                         "Replay log row did not contain a replay step.");
+                ContractSemanticValidator.ValidateReplayStep(step);
                 steps.Add(step);
             }
 
@@ -198,27 +400,66 @@ namespace EmbodiedLab.Unity
 
                 ValidateChunkMetadata(chunk, limits);
             }
+
+            ContractSemanticValidator.ValidateReplayManifest(manifest);
         }
 
         private static void ValidateChunkMetadata(
             ReplayBundleChunk chunk,
             ReplayResourceLimits limits)
         {
-            if (string.IsNullOrEmpty(chunk.Path) ||
-                chunk.Path.Length > limits.MaximumChunkPathCharacters)
+            string path = GetChunkPath(chunk);
+            int stepCount = GetChunkStepCount(chunk);
+            if (string.IsNullOrEmpty(path) ||
+                path.Length > limits.MaximumChunkPathCharacters)
             {
                 throw new InvalidDataException(
                     $"Replay chunk path must contain between 1 and " +
                     $"{limits.MaximumChunkPathCharacters} characters.");
             }
 
-            if (chunk.StepCount < 0 ||
-                chunk.StepCount > limits.MaximumDeclaredChunkSteps)
+            if (stepCount < 0 ||
+                stepCount > limits.MaximumDeclaredChunkSteps)
             {
                 throw new InvalidDataException(
                     $"Replay chunk step count must be between 0 and " +
                     $"{limits.MaximumDeclaredChunkSteps}.");
             }
+        }
+
+        internal static string GetChunkPath(ReplayBundleChunk chunk)
+        {
+            return chunk switch
+            {
+                TrainReplayBundleChunk train => train.Path,
+                EvalReplayBundleChunk evaluation => evaluation.Path,
+                _ => throw new InvalidDataException(
+                    "Replay manifest contains an unsupported chunk type."),
+            };
+        }
+
+        private static int GetChunkStepCount(ReplayBundleChunk chunk)
+        {
+            return chunk switch
+            {
+                TrainReplayBundleChunk train => train.StepCount,
+                EvalReplayBundleChunk evaluation => evaluation.StepCount,
+                _ => throw new InvalidDataException(
+                    "Replay manifest contains an unsupported chunk type."),
+            };
+        }
+
+        private static bool IsCompressedChunk(ReplayBundleChunk chunk)
+        {
+            return chunk switch
+            {
+                TrainReplayBundleChunk train =>
+                    train.Format == TrainReplayBundleChunkFormat.JsonlGz,
+                EvalReplayBundleChunk evaluation =>
+                    evaluation.Format == EvalReplayBundleChunkFormat.JsonlGz,
+                _ => throw new InvalidDataException(
+                    "Replay manifest contains an unsupported chunk type."),
+            };
         }
 
         private static void RequirePath(string path)
@@ -227,6 +468,16 @@ namespace EmbodiedLab.Unity
             {
                 throw new ArgumentException("Path cannot be empty.", nameof(path));
             }
+        }
+
+        private static string RequireIdentity(string value, string parameterName)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                throw new ArgumentException("Identity cannot be empty.", parameterName);
+            }
+
+            return value;
         }
 
         private static void RequireLimits(ReplayResourceLimits limits)
@@ -241,19 +492,25 @@ namespace EmbodiedLab.Unity
         {
             private readonly TextReader reader;
             private readonly int maximumCharacters;
+            private readonly CancellationToken cancellationToken;
             private readonly char[] buffer = new char[4096];
             private int bufferLength;
             private int bufferOffset;
             private bool reachedEnd;
 
-            internal BoundedLineReader(TextReader reader, int maximumCharacters)
+            internal BoundedLineReader(
+                TextReader reader,
+                int maximumCharacters,
+                CancellationToken cancellationToken)
             {
                 this.reader = reader;
                 this.maximumCharacters = maximumCharacters;
+                this.cancellationToken = cancellationToken;
             }
 
             internal string? ReadLine()
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (reachedEnd && bufferOffset >= bufferLength)
                 {
                     return null;
@@ -262,6 +519,7 @@ namespace EmbodiedLab.Unity
                 StringBuilder? line = null;
                 while (true)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     if (!EnsureBuffer())
                     {
                         return line?.ToString();
@@ -294,12 +552,14 @@ namespace EmbodiedLab.Unity
 
             private bool EnsureBuffer()
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (bufferOffset < bufferLength)
                 {
                     return true;
                 }
 
                 bufferLength = reader.Read(buffer, 0, buffer.Length);
+                cancellationToken.ThrowIfCancellationRequested();
                 bufferOffset = 0;
                 reachedEnd = bufferLength == 0;
                 return !reachedEnd;

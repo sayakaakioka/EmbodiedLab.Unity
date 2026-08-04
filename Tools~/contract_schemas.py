@@ -23,7 +23,6 @@ EXPECTED_SCHEMAS = {
     "result-document.schema.json": "ResultDocument",
     "scenario-bundle.schema.json": "ScenarioBundle",
     "submission-response.schema.json": "SubmissionResponse",
-    "training-response.schema.json": "TrainingResponse",
 }
 UNSUPPORTED_KEYWORDS = {
     "$dynamicAnchor",
@@ -32,7 +31,6 @@ UNSUPPORTED_KEYWORDS = {
     "$recursiveRef",
     "$vocabulary",
     "dependentSchemas",
-    "prefixItems",
     "unevaluatedItems",
     "unevaluatedProperties",
 }
@@ -41,9 +39,12 @@ CURRENT_DISCRIMINATED_UNIONS = (
         "RewardComponent",
         "RewardSpec",
         "components",
+        "type",
         {
             "collision": "CollisionRewardComponent",
             "distance_delta": "DistanceDeltaRewardComponent",
+            "maximum_absolute_forward": "MaximumAbsoluteForwardRewardComponent",
+            "minimum_absolute_angle": "MinimumAbsoluteAngleRewardComponent",
             "per_step": "PerStepRewardComponent",
             "terminal_reward": "TerminalRewardComponent",
         },
@@ -52,12 +53,148 @@ CURRENT_DISCRIMINATED_UNIONS = (
         "SensorSpec",
         "ScenarioBundle",
         "sensors",
+        "type",
         {
             "distance_sensor": "DistanceSensor",
             "forward_camera": "ForwardCameraSensor",
+            "goal_vector": "GoalVectorSensor",
+        },
+    ),
+    (
+        "ReplayBundleChunk",
+        "ReplayBundleManifest",
+        "chunks",
+        "phase",
+        {
+            "eval": "EvalReplayBundleChunk",
+            "train": "TrainReplayBundleChunk",
+        },
+    ),
+    (
+        "ReplayActionValue",
+        "ReplayAction",
+        "values",
+        "name",
+        {
+            "forward": "ReplayForwardActionValue",
+            "turn": "ReplayTurnActionValue",
         },
     ),
 )
+CURRENT_SEMANTIC_ONE_OF_BRANCHES = {
+    "ReplayLogStep": [
+        {
+            "properties": {
+                "phase": {"const": "train"},
+                "policy_mode": {"const": "stochastic"},
+            }
+        },
+        {
+            "properties": {
+                "phase": {"const": "eval"},
+                "policy_mode": {"const": "deterministic"},
+            }
+        },
+    ],
+    "ResultBundle": [
+        {
+            "properties": {
+                "artifacts": {
+                    "properties": {
+                        "onnx_model": {"not": {"type": "null"}},
+                        "replay_bundle": {"not": {"type": "null"}},
+                        "sentis_model": {"not": {"type": "null"}},
+                    }
+                },
+                "error": {"type": "null"},
+                "status": {"const": "completed"},
+                "summary": {"not": {"type": "null"}},
+            }
+        },
+        {
+            "properties": {
+                "artifacts": {
+                    "properties": {
+                        "onnx_model": {"type": "null"},
+                        "replay_bundle": {"type": "null"},
+                        "sentis_model": {"type": "null"},
+                    }
+                },
+                "error": {"not": {"type": "null"}},
+                "status": {"const": "failed"},
+                "summary": {"type": "null"},
+            }
+        },
+    ],
+    "ResultDocument": [
+        *[
+            {
+                "properties": {
+                    "error": {"type": "null"},
+                    "progress": {
+                        "properties": {"phase": {"const": status}},
+                        "required": ["phase"],
+                        "type": "object",
+                    },
+                    "result_bundle": {"type": "null"},
+                    "status": {"const": status},
+                }
+            }
+            for status in (
+                "queued",
+                "starting",
+                "running",
+                "cancelling",
+                "cancelled",
+            )
+        ],
+        {
+            "properties": {
+                "error": {"type": "null"},
+                "progress": {
+                    "properties": {"phase": {"const": "completed"}},
+                    "required": ["phase"],
+                    "type": "object",
+                },
+                "result_bundle": {
+                    "properties": {"status": {"const": "completed"}},
+                    "required": ["status"],
+                    "type": "object",
+                },
+                "status": {"const": "completed"},
+            }
+        },
+        {
+            "properties": {
+                "error": {"minLength": 1, "type": "string"},
+                "progress": {
+                    "properties": {"phase": {"const": "failed"}},
+                    "required": ["phase"],
+                    "type": "object",
+                },
+                "result_bundle": {
+                    "anyOf": [
+                        {"type": "null"},
+                        {
+                            "properties": {"status": {"const": "failed"}},
+                            "required": ["status"],
+                            "type": "object",
+                        },
+                    ]
+                },
+                "status": {"const": "failed"},
+            }
+        },
+    ],
+}
+CURRENT_NULL_ONLY_PROPERTIES = {
+    ("EvalReplayBundleChunk", "end_step"),
+    ("EvalReplayBundleChunk", "start_step"),
+    ("TrainReplayBundleChunk", "avg_reward"),
+    ("TrainReplayBundleChunk", "avg_steps"),
+    ("TrainReplayBundleChunk", "episode_count"),
+    ("TrainReplayBundleChunk", "success_rate"),
+}
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCHEMA_DIRECTORY = ROOT / "Schemas~" / SCHEMA_VERSION
@@ -210,13 +347,35 @@ def _normalize_node(
             f"Unsupported JSON Schema keywords: {sorted(unsupported)}"
         )
 
+    expected_semantic_branches = CURRENT_SEMANTIC_ONE_OF_BRANCHES.get(node.get("title"))
+    if (
+        expected_semantic_branches is not None
+        and node.get("oneOf") != expected_semantic_branches
+    ):
+        raise ContractSchemaError(
+            f"Changed current semantic oneOf: {node.get('title')}"
+        )
+
     current_owner = node.get("title") if "properties" in node else owner_title
+    prefix_items = node.get("prefixItems")
+    if prefix_items is not None:
+        if (
+            node.get("type") != "array"
+            or "items" in node
+            or not isinstance(prefix_items, list)
+            or not prefix_items
+            or node.get("minItems") != len(prefix_items)
+            or node.get("maxItems") != len(prefix_items)
+        ):
+            raise ContractSchemaError(
+                "Only the current fixed-length prefixItems tuple is supported"
+            )
     result: dict[str, Any] = {}
     for key, value in node.items():
         if key == "const":
-            if not isinstance(value, str):
+            if not isinstance(value, (str, int)) or isinstance(value, bool):
                 raise ContractSchemaError(
-                    "Only the current string const form is supported"
+                    "Only the current string or integer const form is supported"
                 )
             if "enum" in node:
                 raise ContractSchemaError("A schema cannot contain both const and enum")
@@ -232,10 +391,43 @@ def _normalize_node(
                 for name, child in value.items()
             }
             continue
+        if key == "prefixItems":
+            normalized_items = _normalize_node(value, owner_title=current_owner)
+            expected_items = [
+                {"$ref": "#/definitions/ReplayForwardActionValue"},
+                {"$ref": "#/definitions/ReplayTurnActionValue"},
+            ]
+            if (
+                current_owner != "ReplayAction"
+                or property_name != "values"
+                or normalized_items != expected_items
+            ):
+                raise ContractSchemaError(
+                    "Changed current ReplayAction fixed-length tuple"
+                )
+            result["items"] = {
+                "discriminator": {
+                    "mapping": {
+                        "forward": "#/definitions/ReplayForwardActionValue",
+                        "turn": "#/definitions/ReplayTurnActionValue",
+                    },
+                    "propertyName": "name",
+                },
+                "oneOf": normalized_items,
+            }
+            continue
         result[key] = _normalize_node(value, owner_title=current_owner)
 
+    if result.get("title") in CURRENT_SEMANTIC_ONE_OF_BRANCHES:
+        result.pop("oneOf")
     if "anyOf" in result:
         result = _normalize_nullable_any_of(result)
+    if (
+        result.get("type") == "null"
+        and (owner_title, property_name) in CURRENT_NULL_ONLY_PROPERTIES
+    ):
+        result["type"] = "object"
+        result["x-nullable"] = True
     if result.get("type") == "object" and "additionalProperties" not in result:
         result["additionalProperties"] = False
     if "enum" in result and len(result["enum"]) == 1 and owner_title and property_name:
@@ -252,6 +444,7 @@ def _apply_current_discriminated_unions(definitions: dict[str, Any]) -> None:
         base_name,
         container_name,
         property_name,
+        discriminator_name,
         mapping,
     ) in CURRENT_DISCRIMINATED_UNIONS:
         try:
@@ -270,7 +463,10 @@ def _apply_current_discriminated_unions(definitions: dict[str, Any]) -> None:
             not isinstance(items, dict)
             or set(items) != {"discriminator", "oneOf"}
             or items["discriminator"]
-            != {"mapping": expected_mapping, "propertyName": "type"}
+            != {
+                "mapping": expected_mapping,
+                "propertyName": discriminator_name,
+            }
             or not isinstance(items["oneOf"], list)
             or sorted(
                 choice.get("$ref", "")
@@ -289,11 +485,12 @@ def _apply_current_discriminated_unions(definitions: dict[str, Any]) -> None:
                 f"Discriminated union base already exists: {base_name}"
             )
 
+        derived_definitions = []
         for wire_value, derived_name in mapping.items():
             try:
                 derived = definitions[derived_name]
                 properties = derived["properties"]
-                discriminator_property = properties["type"]
+                discriminator_property = properties[discriminator_name]
             except (KeyError, TypeError) as error:
                 raise ContractSchemaError(
                     f"Changed current discriminated union member: {derived_name}"
@@ -302,23 +499,58 @@ def _apply_current_discriminated_unions(definitions: dict[str, Any]) -> None:
             if (
                 discriminator_property.get("enum") != [wire_value]
                 or "allOf" in derived
-                or "type" in derived.get("required", [])
+                or discriminator_name not in derived.get("required", [])
             ):
                 raise ContractSchemaError(
                     f"Changed current discriminated union member: {derived_name}"
                 )
 
-            del properties["type"]
+            derived_definitions.append(derived)
+
+        common_names = set.intersection(
+            *(set(derived["properties"]) for derived in derived_definitions)
+        ) - {discriminator_name}
+        common_properties = {
+            name: copy.deepcopy(derived_definitions[0]["properties"][name])
+            for name in sorted(common_names)
+            if all(
+                derived["properties"][name]
+                == derived_definitions[0]["properties"][name]
+                for derived in derived_definitions[1:]
+            )
+        }
+        common_required = [
+            name
+            for name in common_properties
+            if all(
+                name in derived.get("required", []) for derived in derived_definitions
+            )
+        ]
+
+        for derived_name in mapping.values():
+            derived = definitions[derived_name]
+            properties = derived["properties"]
+            del properties[discriminator_name]
+            derived["required"].remove(discriminator_name)
+            for name in common_properties:
+                del properties[name]
+                if name in derived["required"]:
+                    derived["required"].remove(name)
+            if not derived["required"]:
+                del derived["required"]
             derived["allOf"] = [{"$ref": f"#/definitions/{base_name}"}]
 
         definitions[base_name] = {
             "additionalProperties": False,
             "discriminator": {
                 "mapping": expected_mapping,
-                "propertyName": "type",
+                "propertyName": discriminator_name,
             },
-            "properties": {"type": {"type": "string"}},
-            "required": ["type"],
+            "properties": {
+                discriminator_name: {"type": "string"},
+                **common_properties,
+            },
+            "required": [discriminator_name, *common_required],
             "title": base_name,
             "type": "object",
             "x-abstract": True,

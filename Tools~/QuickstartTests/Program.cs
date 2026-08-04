@@ -1,6 +1,7 @@
 using EmbodiedLab.Contracts;
 using EmbodiedLab.Unity;
 using EmbodiedLab.Unity.Samples.Quickstart;
+using Newtonsoft.Json;
 
 var tests = new (string Name, Action Run)[]
 {
@@ -97,7 +98,7 @@ static void TestReplayChunkSelection()
     ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(
         FixturePath("navigation_replay_bundle_manifest.json"));
 
-    ReplayBundleChunk canonical =
+    EvalReplayBundleChunk canonical =
         QuickstartReplayTimeline.SelectLatestDeterministicEvaluationChunk(manifest);
 
     AssertEqual(5000, canonical.CheckpointStep, "canonical replay checkpoint");
@@ -106,13 +107,12 @@ static void TestReplayChunkSelection()
         canonical.Path,
         "canonical replay chunk");
 
-    var latest = new ReplayBundleChunk
+    var latest = new EvalReplayBundleChunk
     {
-        Phase = ReplayBundleChunkPhase.Eval,
-        PolicyMode = ReplayBundleChunkPolicyMode.Deterministic,
+        PolicyMode = EvalReplayBundleChunkPolicyMode.Deterministic,
         CheckpointStep = 6000,
         Path = "eval/checkpoint_00006000.jsonl.gz",
-        Format = ReplayBundleChunkFormat.JsonlGz,
+        Format = EvalReplayBundleChunkFormat.JsonlGz,
         StepCount = 1,
     };
     manifest.Chunks.Add(latest);
@@ -131,13 +131,12 @@ static void TestMissingReplayChunk()
         ScenarioId = "scenario-1",
         Chunks = new List<ReplayBundleChunk>
         {
-            new()
+            new TrainReplayBundleChunk
             {
-                Phase = ReplayBundleChunkPhase.Train,
-                PolicyMode = ReplayBundleChunkPolicyMode.Stochastic,
+                PolicyMode = TrainReplayBundleChunkPolicyMode.Stochastic,
                 CheckpointStep = 1,
                 Path = "train/chunk.jsonl.gz",
-                Format = ReplayBundleChunkFormat.JsonlGz,
+                Format = TrainReplayBundleChunkFormat.JsonlGz,
                 StepCount = 1,
             },
         },
@@ -151,12 +150,17 @@ static void TestSelectedReplayChunkRows()
 {
     ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(
         FixturePath("navigation_replay_bundle_manifest.json"));
-    ReplayBundleChunk selectedChunk =
+    EvalReplayBundleChunk selectedChunk =
         QuickstartReplayTimeline.SelectLatestDeterministicEvaluationChunk(manifest);
     IReadOnlyList<ReplayLogStep> steps = EmbodiedLabReplay.ReadSteps(
         FixturePath("navigation_default_replay_log.jsonl"));
     SetCheckpoint(steps, selectedChunk.CheckpointStep);
 
+    EmbodiedLabReplay.ValidateChunkSteps(
+        selectedChunk,
+        steps,
+        manifest.JobId,
+        manifest.ScenarioId);
     QuickstartReplayTimeline.ValidateSelectedChunkSteps(
         manifest.JobId,
         manifest.ScenarioId,
@@ -165,18 +169,20 @@ static void TestSelectedReplayChunkRows()
 
     AssertInvalid((chunk, rows) => rows[0].JobId = "other-submission");
     AssertInvalid((chunk, rows) => rows[0].ScenarioId = "other-scenario");
-    AssertInvalid((chunk, rows) => rows[0].Phase = "train");
-    AssertInvalid((chunk, rows) => rows[0].PolicyMode = "stochastic");
+    AssertInvalid((chunk, rows) => rows[0].Phase = ReplayLogStepPhase.Train);
+    AssertInvalid(
+        (chunk, rows) => rows[0].PolicyMode = ReplayLogStepPolicyMode.Stochastic);
     AssertInvalid(
         (chunk, rows) => rows[0].CheckpointStep = chunk.CheckpointStep - 1);
     AssertInvalid((chunk, rows) => chunk.StepCount++);
+    AssertInvalid((chunk, rows) => rows[1].EpisodeId = "unexpected-episode");
 
     static void AssertInvalid(
-        Action<ReplayBundleChunk, IReadOnlyList<ReplayLogStep>> mutate)
+        Action<EvalReplayBundleChunk, IReadOnlyList<ReplayLogStep>> mutate)
     {
         ReplayBundleManifest candidateManifest = EmbodiedLabReplay.ReadManifest(
             FixturePath("navigation_replay_bundle_manifest.json"));
-        ReplayBundleChunk candidateChunk =
+        EvalReplayBundleChunk candidateChunk =
             QuickstartReplayTimeline.SelectLatestDeterministicEvaluationChunk(
                 candidateManifest);
         IReadOnlyList<ReplayLogStep> candidateSteps = EmbodiedLabReplay.ReadSteps(
@@ -185,11 +191,11 @@ static void TestSelectedReplayChunkRows()
         mutate(candidateChunk, candidateSteps);
 
         AssertThrows<InvalidDataException>(
-            () => QuickstartReplayTimeline.ValidateSelectedChunkSteps(
-                candidateManifest.JobId,
-                candidateManifest.ScenarioId,
+            () => EmbodiedLabReplay.ValidateChunkSteps(
                 candidateChunk,
-                candidateSteps));
+                candidateSteps,
+                candidateManifest.JobId,
+                candidateManifest.ScenarioId));
     }
 
     static void SetCheckpoint(IReadOnlyList<ReplayLogStep> rows, int checkpointStep)
@@ -405,18 +411,30 @@ static void TestReplayLocalPaths()
 
 static void TestOnnxContractAcceptedShapes()
 {
+    ScenarioBundle scenario = CanonicalScenario();
+    OnnxModelArtifactLocation model = CanonicalOnnxModel();
+    ModelInput image = model.Inputs.Single(input => input.Name == "obs_0");
+    ModelInput numeric = model.Inputs.Single(input => input.Name == "obs_1");
+    image.Shape = new List<int> { 3, 84, 112 };
+    numeric.Shape = new List<int> { 2 };
     QuickstartOnnxContract unbatched = QuickstartOnnxContract.Validate(
+        scenario,
+        model,
         new[]
         {
             Tensor("obs_0", true, 3, 84, 112),
             Tensor("obs_1", true, 2),
         },
-        new[] { Tensor("actions", true, 2) });
+        new[] { Tensor("action", true, 2) });
     AssertEqual(3, unbatched.ImageDimensions.Length, "unbatched image rank");
     AssertEqual(1, unbatched.NumericDimensions.Length, "unbatched numeric rank");
-    AssertEqual("actions", unbatched.OutputName, "output name");
+    AssertEqual("action", unbatched.OutputName, "output name");
 
+    scenario = CanonicalScenario();
+    model = CanonicalOnnxModel();
     QuickstartOnnxContract batched = QuickstartOnnxContract.Validate(
+        scenario,
+        model,
         new[]
         {
             Tensor("obs_1", true, -1, 2),
@@ -425,51 +443,129 @@ static void TestOnnxContractAcceptedShapes()
         new[] { Tensor("action", true, -1, 2) });
     AssertEqual(1, batched.ImageDimensions[0], "resolved image batch");
     AssertEqual(1, batched.NumericDimensions[0], "resolved numeric batch");
+
+    ForwardCameraSensor camera = scenario.Sensors.OfType<ForwardCameraSensor>().Single();
+    camera.Width = 64;
+    model.Inputs.Single(input => input.Name == "obs_0").Shape =
+        new List<int> { -1, 3, 84, 64 };
+    QuickstartOnnxContract resized = QuickstartOnnxContract.Validate(
+        scenario,
+        model,
+        new[]
+        {
+            Tensor("obs_1", true, -1, 2),
+            Tensor("obs_0", true, -1, 3, 84, 64),
+        },
+        new[] { Tensor("action", true, -1, 2) });
+    AssertEqual(64, resized.ImageWidth, "Scenario-driven image width");
+    AssertEqual(3 * 84 * 64, resized.ImageValueCount, "Scenario-driven image size");
 }
 
 static void TestOnnxContractRejectedMetadata()
 {
+    ScenarioBundle scenario = CanonicalScenario();
+    OnnxModelArtifactLocation model = CanonicalOnnxModel();
     AssertThrows<InvalidDataException>(
         () => QuickstartOnnxContract.Validate(
+            scenario,
+            model,
             new[]
             {
                 Tensor("obs_0", true, 3, 84, 112),
                 Tensor("obs_1", true, 2),
                 Tensor("extra", true, 1),
             },
-            new[] { Tensor("actions", true, 2) }));
+            new[] { Tensor("action", true, 2) }));
     AssertThrows<InvalidDataException>(
         () => QuickstartOnnxContract.Validate(
+            scenario,
+            model,
             new[]
             {
-                Tensor("obs_0", true, 3, 84, 111),
-                Tensor("obs_1", true, 2),
+                Tensor("obs_0", true, -1, 3, 84, 111),
+                Tensor("obs_1", true, -1, 2),
             },
-            new[] { Tensor("actions", true, 2) }));
+            new[] { Tensor("action", true, 2) }));
     AssertThrows<InvalidDataException>(
         () => QuickstartOnnxContract.Validate(
+            scenario,
+            model,
             new[]
             {
-                Tensor("obs_0", false, 3, 84, 112),
-                Tensor("obs_1", true, 2),
+                Tensor("obs_0", false, -1, 3, 84, 112),
+                Tensor("obs_1", true, -1, 2),
             },
-            new[] { Tensor("actions", true, 2) }));
+            new[] { Tensor("action", true, 2) }));
     AssertThrows<InvalidDataException>(
         () => QuickstartOnnxContract.Validate(
+            scenario,
+            model,
             new[]
             {
-                Tensor("obs_0", true, 3, 84, 112),
-                Tensor("obs_1", true, 2),
+                Tensor("obs_0", true, -1, 3, 84, 112),
+                Tensor("obs_1", true, -1, 2),
             },
-            new[] { Tensor("actions", false, 2) }));
+            new[] { Tensor("action", false, 2) }));
     AssertThrows<InvalidDataException>(
         () => QuickstartOnnxContract.Validate(
+            scenario,
+            model,
             new[]
             {
-                Tensor("obs_0", true, 3, 84, 112),
-                Tensor("obs_1", true, 2),
+                Tensor("obs_0", true, -1, 3, 84, 112),
+                Tensor("obs_1", true, -1, 2),
             },
-            new[] { Tensor("actions", true, 1) }));
+            new[] { Tensor("action", true, 1) }));
+    AssertThrows<InvalidDataException>(
+        () => QuickstartOnnxContract.Validate(
+            scenario,
+            model,
+            new[]
+            {
+                Tensor("obs_0", true, -1, 3, 84, 112),
+                Tensor("obs_1", true, -1, 2),
+            },
+            new[] { Tensor("action", true, -1, 3) }));
+    AssertThrows<InvalidDataException>(
+        () => QuickstartOnnxContract.Validate(
+            scenario,
+            model,
+            new[]
+            {
+                Tensor("obs_0", true, -1, 3, 84, 112),
+                Tensor("obs_1", true, -1, 2),
+            },
+            new[]
+            {
+                Tensor("action", true, -1, 2),
+                Tensor("extra", true, 1),
+            }));
+
+    model = CanonicalOnnxModel();
+    model.Output.ActionMapping["forward"] = "policy_forward";
+    AssertThrows<InvalidDataException>(
+        () => QuickstartOnnxContract.Validate(
+            scenario,
+            model,
+            new[]
+            {
+                Tensor("obs_0", true, -1, 3, 84, 112),
+                Tensor("obs_1", true, -1, 2),
+            },
+            new[] { Tensor("action", true, -1, 2) }));
+
+    model = CanonicalOnnxModel();
+    model.OpsetVersion = (OnnxModelArtifactLocationOpsetVersion)18;
+    AssertThrows<InvalidDataException>(
+        () => QuickstartOnnxContract.Validate(
+            scenario,
+            model,
+            new[]
+            {
+                Tensor("obs_0", true, -1, 3, 84, 112),
+                Tensor("obs_1", true, -1, 2),
+            },
+            new[] { Tensor("action", true, 2) }));
 }
 
 static void TestGoalObservation()
@@ -479,6 +575,7 @@ static void TestGoalObservation()
         new UnityEngine.Vector3(0f, 0f, 0f),
         170f,
         new UnityEngine.Vector3(-1f, 0f, -1f),
+        new[] { Values.GoalAngleDegrees, Values.GoalDistanceMeters },
         values);
     AssertNear(55D, values[0], "signed relative goal angle");
     AssertNear(Math.Sqrt(2D), values[1], "goal distance");
@@ -487,6 +584,7 @@ static void TestGoalObservation()
         new UnityEngine.Vector3(0f, 0f, 0f),
         -170f,
         new UnityEngine.Vector3(1f, 0f, -1f),
+        new[] { Values.GoalAngleDegrees, Values.GoalDistanceMeters },
         values);
     AssertNear(-55D, values[0], "wrapped negative goal angle");
 }
@@ -505,6 +603,12 @@ static void TestImageConversion()
         source,
         2,
         2,
+        new[]
+        {
+            "channel_0_unused",
+            "channel_1_traversable",
+            "channel_2_blocked_or_background",
+        },
         destination);
 
     float[] expected =
@@ -542,6 +646,22 @@ static void TestActionContract()
             new QuickstartRawAction(float.NaN, 0f)));
 }
 
+static ScenarioBundle CanonicalScenario()
+{
+    return JsonConvert.DeserializeObject<ScenarioBundle>(
+        File.ReadAllText(FixturePath("navigation_default_scenario_bundle.json"))) ??
+        throw new InvalidDataException("Canonical Scenario fixture is empty.");
+}
+
+static OnnxModelArtifactLocation CanonicalOnnxModel()
+{
+    ResultDocument result = JsonConvert.DeserializeObject<ResultDocument>(
+        File.ReadAllText(FixturePath("navigation_completed_result_document.json"))) ??
+        throw new InvalidDataException("Canonical Result fixture is empty.");
+    return result.ResultBundle?.Artifacts?.OnnxModel ??
+        throw new InvalidDataException("Canonical Result fixture has no ONNX model.");
+}
+
 static QuickstartTensorMetadata Tensor(
     string name,
     bool isFloat,
@@ -565,8 +685,8 @@ static ReplayLogStep CreateReplayStep(
         EpisodeId = episodeId,
         StepIndex = stepIndex,
         TimeSeconds = timeSeconds,
-        Phase = "eval",
-        PolicyMode = "deterministic",
+        Phase = ReplayLogStepPhase.Eval,
+        PolicyMode = ReplayLogStepPolicyMode.Deterministic,
         Robot = new ReplayRobotState
         {
             Position = new ReplayPosition { X = x, Z = z },

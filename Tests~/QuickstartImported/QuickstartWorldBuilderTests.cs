@@ -3,6 +3,7 @@
 using System;
 using System.IO;
 using EmbodiedLab.Contracts;
+using Newtonsoft.Json;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -264,10 +265,13 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests
                 return;
             }
 
-            var policy = new QuickstartOnnxPolicy(path);
+            ScenarioBundle scenario = LoadScenario();
+            OnnxModelArtifactLocation modelContract = LoadOnnxModelContract();
+            var policy = new QuickstartOnnxPolicy(path, scenario, modelContract);
+            QuickstartOnnxContract contract = policy.Contract;
             QuickstartRawAction action = policy.Run(
-                new float[QuickstartOnnxContract.ImageValueCount],
-                new float[QuickstartOnnxContract.NumericValueCount]);
+                new float[contract.ImageValueCount],
+                new float[contract.NumericValueCount]);
             Assert.That(float.IsNaN(action.Forward), Is.False);
             Assert.That(float.IsInfinity(action.Forward), Is.False);
             Assert.That(float.IsNaN(action.Turn), Is.False);
@@ -276,8 +280,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests
             policy.Dispose();
             Assert.Throws<ObjectDisposedException>(
                 () => policy.Run(
-                    new float[QuickstartOnnxContract.ImageValueCount],
-                    new float[QuickstartOnnxContract.NumericValueCount]));
+                    new float[contract.ImageValueCount],
+                    new float[contract.NumericValueCount]));
         }
 
         [Test]
@@ -313,10 +317,10 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests
             replay.Stop();
             Assert.That(replay.IsPlaying, Is.False);
 
-            runner.Start(path);
+            runner.Start(path, LoadOnnxModelContract());
             Assert.That(runner.IsRunning, Is.True, runner.Status);
 
-            runner.Tick(QuickstartInferenceRunner.DecisionSeconds);
+            runner.Tick(runner.DecisionSeconds);
             Assert.That(
                 runner.ObservationStatus,
                 Does.StartWith("angle="),
@@ -345,8 +349,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests
                 EpisodeId = "episode-1",
                 StepIndex = step,
                 TimeSeconds = time,
-                Phase = "eval",
-                PolicyMode = "deterministic",
+                Phase = ReplayLogStepPhase.Eval,
+                PolicyMode = ReplayLogStepPolicyMode.Deterministic,
                 Robot = new ReplayRobotState
                 {
                     Position = new ReplayPosition { X = x, Z = z },
@@ -363,6 +367,21 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests
                 "Quickstart",
                 "NavigationScenario.json");
             return ScenarioBundleJson.Deserialize(File.ReadAllText(path));
+        }
+
+        private static OnnxModelArtifactLocation LoadOnnxModelContract()
+        {
+            string path = Path.Combine(
+                Application.dataPath,
+                "EmbodiedLabQuickstartValidation",
+                "Fixtures",
+                "navigation_completed_result_document.json");
+            ResultDocument result = JsonConvert.DeserializeObject<ResultDocument>(
+                File.ReadAllText(path)) ?? throw new AssertionException(
+                    "Canonical Result fixture was empty.");
+            return result.ResultBundle?.Artifacts?.OnnxModel ??
+                throw new AssertionException(
+                    "Canonical Result fixture has no ONNX model metadata.");
         }
 
         private static void AssertTransform(

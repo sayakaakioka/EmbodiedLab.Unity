@@ -27,6 +27,8 @@ namespace EmbodiedLab.Unity.Internal
         private const long MaximumReplayArtifactBytes = 64L * 1024L * 1024L;
         private const long MaximumModelArtifactBytes = 1024L * 1024L * 1024L;
         private const int MaximumResultMessageBytes = 1024 * 1024;
+        private const int MaximumJsonResponseBytes = 1024 * 1024;
+        private const int MaximumErrorResponseBytes = 64 * 1024;
 
         private static readonly JsonSerializerSettings SerializerSettings = new()
         {
@@ -39,6 +41,7 @@ namespace EmbodiedLab.Unity.Internal
         private readonly IResultWebSocketFactory webSocketFactory;
         private readonly ResultMonitorTiming monitorTiming;
         private readonly Func<TimeSpan, CancellationToken, Task> delayAsync;
+        private readonly SemaphoreSlim artifactCommitGate = new(1, 1);
 
         internal EmbodiedLabTransport(Uri apiBaseUri, Uri resultWebSocketBaseUri)
             : this(
@@ -124,18 +127,6 @@ namespace EmbodiedLab.Unity.Internal
                     attempt++;
                 }
             }
-        }
-
-        internal Task<TrainingResponse> StartTrainingAsync(
-            string submissionId,
-            CancellationToken cancellationToken)
-        {
-            return SendJsonAsync<TrainingResponse>(
-                HttpMethod.Post,
-                BuildApiUri("submissions", RequireValue(submissionId, nameof(submissionId)), "train"),
-                requestJson: null,
-                authorization: null,
-                cancellationToken);
         }
 
         internal Task<ResultDocument> GetResultAsync(
@@ -235,9 +226,10 @@ namespace EmbodiedLab.Unity.Internal
         }
 
         internal async Task DownloadArtifactAsync(
-            ArtifactLocation artifact,
+            ArtifactDownloadRequest artifact,
             string destinationPath,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            Action<string, CancellationToken>? validateTemporaryFile = null)
         {
             if (artifact == null)
             {
@@ -248,6 +240,7 @@ namespace EmbodiedLab.Unity.Internal
                 destinationPath,
                 nameof(destinationPath));
             long maximumBytes = GetMaximumArtifactBytes(artifact.Format);
+            ValidateArtifactMetadata(artifact, maximumBytes);
             string fullDestinationPath = Path.GetFullPath(requiredDestinationPath);
             string? directory = Path.GetDirectoryName(fullDestinationPath);
             if (!string.IsNullOrEmpty(directory))
@@ -255,11 +248,8 @@ namespace EmbodiedLab.Unity.Internal
                 Directory.CreateDirectory(directory);
             }
 
-            string temporaryPath = fullDestinationPath + ".part";
-            if (File.Exists(temporaryPath))
-            {
-                File.Delete(temporaryPath);
-            }
+            string temporaryPath = fullDestinationPath + "." +
+                Guid.NewGuid().ToString("N") + ".part";
 
             try
             {
@@ -273,7 +263,11 @@ namespace EmbodiedLab.Unity.Internal
                     .ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode)
                 {
-                    string responseBody = await response.Content.ReadAsStringAsync()
+                    string responseBody = await ReadBoundedUtf8Async(
+                            response.Content,
+                            MaximumErrorResponseBytes,
+                            "Artifact error response",
+                            cancellationToken)
                         .ConfigureAwait(false);
                     throw new EmbodiedLabTransportException(
                         response.StatusCode,
@@ -283,11 +277,10 @@ namespace EmbodiedLab.Unity.Internal
                 }
 
                 long? contentLength = response.Content.Headers.ContentLength;
-                if (contentLength.HasValue && contentLength.Value > maximumBytes)
+                if (contentLength.HasValue && contentLength.Value != artifact.SizeBytes)
                 {
                     throw new InvalidDataException(
-                        $"Artifact content length exceeds the maximum size of " +
-                        $"{maximumBytes} bytes for {artifact.Format}.");
+                        "Artifact content length does not match the declared size.");
                 }
 
                 using Stream source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
@@ -296,6 +289,8 @@ namespace EmbodiedLab.Unity.Internal
                     maximumBytes,
                     $"{artifact.Format} artifact",
                     leaveOpen: true);
+                using var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                long writtenBytes = 0;
                 using (var destination = new FileStream(
                     temporaryPath,
                     FileMode.CreateNew,
@@ -304,17 +299,67 @@ namespace EmbodiedLab.Unity.Internal
                     81920,
                     FileOptions.Asynchronous | FileOptions.SequentialScan))
                 {
-                    await limitedSource.CopyToAsync(destination, 81920, cancellationToken)
-                        .ConfigureAwait(false);
+                    byte[] buffer = new byte[81920];
+                    int read;
+                    while ((read = await limitedSource.ReadAsync(
+                        buffer,
+                        0,
+                        buffer.Length,
+                        cancellationToken).ConfigureAwait(false)) > 0)
+                    {
+                        writtenBytes += read;
+                        if (writtenBytes > artifact.SizeBytes)
+                        {
+                            throw new InvalidDataException(
+                                "Artifact exceeds its declared size.");
+                        }
+
+                        digest.AppendData(buffer, 0, read);
+                        await destination.WriteAsync(
+                            buffer,
+                            0,
+                            read,
+                            cancellationToken).ConfigureAwait(false);
+                    }
                 }
 
-                if (File.Exists(fullDestinationPath))
+                if (writtenBytes != artifact.SizeBytes)
                 {
-                    File.Replace(temporaryPath, fullDestinationPath, null);
+                    throw new InvalidDataException(
+                        "Artifact byte count does not match the declared size.");
                 }
-                else
+
+                string actualSha256 = BitConverter.ToString(digest.GetHashAndReset())
+                    .Replace("-", string.Empty)
+                    .ToLowerInvariant();
+                if (!string.Equals(
+                    actualSha256,
+                    artifact.Sha256,
+                    StringComparison.Ordinal))
                 {
-                    File.Move(temporaryPath, fullDestinationPath);
+                    throw new InvalidDataException(
+                        "Artifact SHA-256 does not match the declared digest.");
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                validateTemporaryFile?.Invoke(temporaryPath, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                await artifactCommitGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    if (File.Exists(fullDestinationPath))
+                    {
+                        File.Replace(temporaryPath, fullDestinationPath, null);
+                    }
+                    else
+                    {
+                        File.Move(temporaryPath, fullDestinationPath);
+                    }
+                }
+                finally
+                {
+                    artifactCommitGate.Release();
                 }
             }
             catch
@@ -328,7 +373,7 @@ namespace EmbodiedLab.Unity.Internal
             }
         }
 
-        internal static Uri BuildPublicArtifactUri(ArtifactLocation artifact)
+        internal static Uri BuildPublicArtifactUri(ArtifactDownloadRequest artifact)
         {
             if (artifact == null)
             {
@@ -350,20 +395,39 @@ namespace EmbodiedLab.Unity.Internal
                 UriKind.Absolute);
         }
 
-        internal static long GetMaximumArtifactBytes(ArtifactFormat format)
+        internal static long GetMaximumArtifactBytes(string format)
         {
             return format switch
             {
-                ArtifactFormat.Json => MaximumJsonArtifactBytes,
-                ArtifactFormat.Jsonl => MaximumReplayArtifactBytes,
-                ArtifactFormat.JsonlGz => MaximumReplayArtifactBytes,
-                ArtifactFormat.Onnx => MaximumModelArtifactBytes,
-                ArtifactFormat.Zip => MaximumModelArtifactBytes,
+                "json" => MaximumJsonArtifactBytes,
+                "jsonl" => MaximumReplayArtifactBytes,
+                "jsonl.gz" => MaximumReplayArtifactBytes,
+                "onnx" => MaximumModelArtifactBytes,
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(format),
                     format,
                     "Unsupported artifact format."),
             };
+        }
+
+        private static void ValidateArtifactMetadata(
+            ArtifactDownloadRequest artifact,
+            long maximumBytes)
+        {
+            if (artifact.SizeBytes < 0 || artifact.SizeBytes > maximumBytes)
+            {
+                throw new InvalidDataException(
+                    "Artifact declared size is outside the supported range.");
+            }
+
+            if (artifact.Sha256.Length != 64 ||
+                artifact.Sha256.Any(character =>
+                    !(character >= '0' && character <= '9') &&
+                    !(character >= 'a' && character <= 'f')))
+            {
+                throw new InvalidDataException(
+                    "Artifact SHA-256 must be 64 lowercase hexadecimal characters.");
+            }
         }
 
         public void Dispose()
@@ -485,10 +549,20 @@ namespace EmbodiedLab.Unity.Internal
 
             using HttpResponseMessage response = await httpClient.SendAsync(
                     request,
-                    HttpCompletionOption.ResponseContentRead,
+                    HttpCompletionOption.ResponseHeadersRead,
                     cancellationToken)
                 .ConfigureAwait(false);
-            string responseBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            int maximumResponseBytes = response.IsSuccessStatusCode
+                ? MaximumJsonResponseBytes
+                : MaximumErrorResponseBytes;
+            string responseBody = await ReadBoundedUtf8Async(
+                    response.Content,
+                    maximumResponseBytes,
+                    response.IsSuccessStatusCode
+                        ? "EmbodiedLab JSON response"
+                        : "EmbodiedLab error response",
+                    cancellationToken)
+                .ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 throw new EmbodiedLabTransportException(
@@ -497,9 +571,49 @@ namespace EmbodiedLab.Unity.Internal
                     requestUri);
             }
 
-            return JsonConvert.DeserializeObject<T>(responseBody, SerializerSettings)
+            T result = JsonConvert.DeserializeObject<T>(responseBody, SerializerSettings)
                 ?? throw new JsonSerializationException(
                     $"EmbodiedLab returned an empty {typeof(T).Name} response.");
+            if (result is ResultDocument resultDocument)
+            {
+                ContractSemanticValidator.ValidateResultDocument(resultDocument);
+            }
+
+            return result;
+        }
+
+        private static async Task<string> ReadBoundedUtf8Async(
+            HttpContent content,
+            int maximumBytes,
+            string resourceName,
+            CancellationToken cancellationToken)
+        {
+            long? contentLength = content.Headers.ContentLength;
+            if (contentLength.HasValue && contentLength.Value > maximumBytes)
+            {
+                throw new InvalidDataException(
+                    $"{resourceName} exceeds the maximum size of {maximumBytes} bytes.");
+            }
+
+            using Stream source = await content.ReadAsStreamAsync().ConfigureAwait(false);
+            using var limited = new ResourceLimitedReadStream(
+                source,
+                maximumBytes,
+                resourceName,
+                leaveOpen: true);
+            using var payload = new MemoryStream();
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = await limited.ReadAsync(
+                buffer,
+                0,
+                buffer.Length,
+                cancellationToken).ConfigureAwait(false)) > 0)
+            {
+                payload.Write(buffer, 0, read);
+            }
+
+            return new UTF8Encoding(false, true).GetString(payload.ToArray());
         }
 
         private async Task ConnectAsync(
@@ -600,6 +714,8 @@ namespace EmbodiedLab.Unity.Internal
                     "Result stream message belongs to a different submission.");
             }
 
+            ContractSemanticValidator.ValidateResultDocument(result);
+
             return result;
         }
 
@@ -652,5 +768,36 @@ namespace EmbodiedLab.Unity.Internal
             {
             }
         }
+    }
+
+    internal sealed class ArtifactDownloadRequest
+    {
+        internal ArtifactDownloadRequest(
+            ArtifactStorage storage,
+            string bucket,
+            string path,
+            string format,
+            long sizeBytes,
+            string sha256)
+        {
+            Storage = storage;
+            Bucket = bucket ?? throw new ArgumentNullException(nameof(bucket));
+            Path = path ?? throw new ArgumentNullException(nameof(path));
+            Format = format ?? throw new ArgumentNullException(nameof(format));
+            SizeBytes = sizeBytes;
+            Sha256 = sha256 ?? throw new ArgumentNullException(nameof(sha256));
+        }
+
+        internal ArtifactStorage Storage { get; }
+
+        internal string Bucket { get; }
+
+        internal string Path { get; }
+
+        internal string Format { get; }
+
+        internal long SizeBytes { get; }
+
+        internal string Sha256 { get; }
     }
 }

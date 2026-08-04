@@ -134,7 +134,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         internal QuickstartReplayFrame CurrentFrame => CreateCurrentFrame();
 
-        internal static ReplayBundleChunk SelectLatestDeterministicEvaluationChunk(
+        internal static EvalReplayBundleChunk SelectLatestDeterministicEvaluationChunk(
             ReplayBundleManifest manifest)
         {
             if (manifest == null)
@@ -142,20 +142,21 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 throw new ArgumentNullException(nameof(manifest));
             }
 
-            ReplayBundleChunk? selected = null;
+            EvalReplayBundleChunk? selected = null;
             foreach (ReplayBundleChunk chunk in manifest.Chunks ??
                 throw new InvalidOperationException("Replay manifest chunks are missing."))
             {
-                if (chunk == null ||
-                    chunk.Phase != ReplayBundleChunkPhase.Eval ||
-                    chunk.PolicyMode != ReplayBundleChunkPolicyMode.Deterministic)
+                if (chunk is not EvalReplayBundleChunk evaluation ||
+                    evaluation.PolicyMode !=
+                        EvalReplayBundleChunkPolicyMode.Deterministic)
                 {
                     continue;
                 }
 
-                if (selected == null || chunk.CheckpointStep >= selected.CheckpointStep)
+                if (selected == null ||
+                    evaluation.CheckpointStep >= selected.CheckpointStep)
                 {
-                    selected = chunk;
+                    selected = evaluation;
                 }
             }
 
@@ -166,7 +167,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         internal static void ValidateSelectedChunkSteps(
             string submissionId,
             string scenarioId,
-            ReplayBundleChunk selectedChunk,
+            EvalReplayBundleChunk selectedChunk,
             IReadOnlyList<ReplayLogStep> steps)
         {
             if (selectedChunk == null)
@@ -195,11 +196,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 if (step == null ||
                     !string.Equals(step.JobId, submissionId, StringComparison.Ordinal) ||
                     !string.Equals(step.ScenarioId, scenarioId, StringComparison.Ordinal) ||
-                    !string.Equals(step.Phase, "eval", StringComparison.Ordinal) ||
-                    !string.Equals(
-                        step.PolicyMode,
-                        "deterministic",
-                        StringComparison.Ordinal) ||
+                    step.Phase != ReplayLogStepPhase.Eval ||
+                    step.PolicyMode != ReplayLogStepPolicyMode.Deterministic ||
                     step.CheckpointStep != selectedChunk.CheckpointStep ||
                     step.Robot == null ||
                     step.Robot.Position == null)

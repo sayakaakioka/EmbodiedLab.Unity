@@ -33,12 +33,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Run/Stop reset, and visible contract violations.
 - Real-policy Unity Editor inference and Windows x64 Standalone build/run smoke
   validation without adding a public SDK inference API or Sentis dependency.
-- Recoverable training-start failures that retain the submitted job handle and
-  its cloud cancellation capability.
-- Idempotent submission recovery using client-generated request and cancellation
-  capabilities, with one safe retry after an ambiguous response loss.
+- Cross-field validation for Result Document, Result Bundle, Replay manifest,
+  and Replay Log state invariants.
+- Exact downloaded artifact size and SHA-256 verification before atomic replace.
+- Scenario-, model-, and session-derived ONNX input and output validation for
+  tutorial inference without duplicate observation constants.
+- Job and scenario identity validation before Result and Replay artifacts are
+  committed to their destinations.
 
 ### Changed
+
+- Submission acceptance is now a single server-owned operation; the removed
+  client-visible training-start request and recovery exception are no longer
+  part of the SDK.
+- Synchronized the six strict EmbodiedLab v0 schemas, canonical fixtures, and
+  generated DTOs, including explicit training, observation, artifact, and
+  train/evaluation Replay metadata.
+- Idempotent submission recovery using client-generated request and cancellation
+  capabilities, with one safe retry after an ambiguous response loss.
 
 - Replace the operational Quickstart, local history, Advanced panel, and status
   overlay with ordered scenario, connection, job, artifact, replay, and inference
@@ -65,3 +77,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   replay steps before untrusted artifacts can exhaust disk, memory, or CPU.
 - Bound each accumulated result WebSocket message to 1 MiB and one silence
   interval, aborting oversized or indefinitely fragmented streams.
+- Bound HTTP Result payloads and error bodies before JSON deserialization.
+- Isolate concurrent downloads with operation-specific temporary files and a
+  serialized verified commit step for shared destinations.
