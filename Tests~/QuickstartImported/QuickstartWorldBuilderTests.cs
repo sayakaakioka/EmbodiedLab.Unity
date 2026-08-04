@@ -188,6 +188,34 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests
             Assert.That(viewportWidth, Is.EqualTo(340f).Within(Tolerance));
         }
 
+        [TestCase(2560f, 1440f)]
+        [TestCase(800f, 600f)]
+        public void OverviewCameraFitsCanonicalWorld(float screenWidth, float screenHeight)
+        {
+            ScenarioBundle scenario = LoadScenario();
+            using var builder = new QuickstartWorldBuilder();
+            builder.Build(scenario);
+            Rect panel = QuickstartController.CalculatePanelRect(screenWidth, screenHeight);
+            Rect viewport = QuickstartController.CalculateOverviewViewport(
+                panel,
+                screenWidth,
+                screenHeight);
+            float aspect = viewport.width * screenWidth / (viewport.height * screenHeight);
+
+            builder.FitOverviewCamera(aspect);
+
+            Camera camera = builder.OverviewCamera ??
+                throw new AssertionException("Overview camera was not created.");
+            float worldWidth = Convert.ToSingle(
+                scenario.World.Bounds.Max.X - scenario.World.Bounds.Min.X);
+            float worldDepth = Convert.ToSingle(
+                scenario.World.Bounds.Max.Z - scenario.World.Bounds.Min.Z);
+            Assert.That(camera.orthographicSize * 2f, Is.GreaterThan(worldDepth));
+            Assert.That(
+                camera.orthographicSize * 2f * aspect,
+                Is.GreaterThan(worldWidth));
+        }
+
         [Test]
         public void DisposeRemovesGeneratedWorld()
         {

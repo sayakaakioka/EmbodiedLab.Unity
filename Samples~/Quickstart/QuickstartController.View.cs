@@ -110,10 +110,14 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             if (overviewCamera != null)
             {
                 Rect panelRect = CalculatePanelRect(Screen.width, Screen.height);
-                overviewCamera.rect = CalculateOverviewViewport(
+                Rect viewport = CalculateOverviewViewport(
                     panelRect,
                     Screen.width,
                     Screen.height);
+                overviewCamera.rect = viewport;
+                float viewportPixelWidth = viewport.width * Mathf.Max(1f, Screen.width);
+                float viewportPixelHeight = viewport.height * Mathf.Max(1f, Screen.height);
+                worldBuilder?.FitOverviewCamera(viewportPixelWidth / viewportPixelHeight);
             }
         }
 
