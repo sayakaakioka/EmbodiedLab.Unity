@@ -223,12 +223,180 @@ namespace EmbodiedLab.Unity.Tests
 
                 if (schema["oneOf"] is JArray variants)
                 {
-                    schema = SelectDiscriminatedVariant(variants, schemaRoot, actual);
+                    if (schema["discriminator"] is null)
+                    {
+                        ValidateSemanticOneOfShape(schema, variants);
+                        return schema;
+                    }
+
+                    schema = SelectDiscriminatedVariant(
+                        schema,
+                        variants,
+                        schemaRoot,
+                        actual);
                     continue;
                 }
 
                 return schema;
             }
+        }
+
+        private static void ValidateSemanticOneOfShape(JObject schema, JArray variants)
+        {
+            var title = schema["title"]?.Value<string>();
+            JArray expected = title switch
+            {
+                "ReplayLogStep" => CreateExpectedReplayStepBranches(),
+                "ResultBundle" => CreateExpectedResultBundleBranches(),
+                "ResultDocument" => CreateExpectedResultDocumentBranches(),
+                _ => throw new InvalidOperationException(
+                    $"Unsupported non-discriminated oneOf schema: {title ?? "<untitled>"}"),
+            };
+
+            if (!JToken.DeepEquals(variants, expected))
+            {
+                throw new InvalidOperationException(
+                    $"Canonical semantic oneOf content changed for {title}.");
+            }
+        }
+
+        private static JArray CreateExpectedReplayStepBranches()
+        {
+            return new JArray(
+                CreatePropertiesBranch(
+                    ("phase", new JObject { ["const"] = "train" }),
+                    ("policy_mode", new JObject { ["const"] = "stochastic" })),
+                CreatePropertiesBranch(
+                    ("phase", new JObject { ["const"] = "eval" }),
+                    ("policy_mode", new JObject { ["const"] = "deterministic" })));
+        }
+
+        private static JArray CreateExpectedResultBundleBranches()
+        {
+            return new JArray(
+                CreatePropertiesBranch(
+                    ("artifacts", new JObject
+                    {
+                        ["properties"] = new JObject
+                        {
+                            ["onnx_model"] = new JObject
+                            {
+                                ["not"] = new JObject { ["type"] = "null" },
+                            },
+                            ["replay_bundle"] = new JObject
+                            {
+                                ["not"] = new JObject { ["type"] = "null" },
+                            },
+                            ["sentis_model"] = new JObject
+                            {
+                                ["not"] = new JObject { ["type"] = "null" },
+                            },
+                        },
+                    }),
+                    ("error", new JObject { ["type"] = "null" }),
+                    ("status", new JObject { ["const"] = "completed" }),
+                    ("summary", new JObject
+                    {
+                        ["not"] = new JObject { ["type"] = "null" },
+                    })),
+                CreatePropertiesBranch(
+                    ("artifacts", new JObject
+                    {
+                        ["properties"] = new JObject
+                        {
+                            ["onnx_model"] = new JObject { ["type"] = "null" },
+                            ["replay_bundle"] = new JObject { ["type"] = "null" },
+                            ["sentis_model"] = new JObject { ["type"] = "null" },
+                        },
+                    }),
+                    ("error", new JObject
+                    {
+                        ["not"] = new JObject { ["type"] = "null" },
+                    }),
+                    ("status", new JObject { ["const"] = "failed" }),
+                    ("summary", new JObject { ["type"] = "null" })));
+        }
+
+        private static JArray CreateExpectedResultDocumentBranches()
+        {
+            var branches = new JArray();
+            foreach (string status in new[]
+            {
+                "queued",
+                "starting",
+                "running",
+                "cancelling",
+                "cancelled",
+            })
+            {
+                branches.Add(CreateResultDocumentBranch(
+                    status,
+                    new JObject { ["type"] = "null" },
+                    new JObject { ["type"] = "null" }));
+            }
+
+            branches.Add(CreateResultDocumentBranch(
+                "completed",
+                new JObject { ["type"] = "null" },
+                new JObject
+                {
+                    ["properties"] = new JObject
+                    {
+                        ["status"] = new JObject { ["const"] = "completed" },
+                    },
+                    ["required"] = new JArray("status"),
+                    ["type"] = "object",
+                }));
+            branches.Add(CreateResultDocumentBranch(
+                "failed",
+                new JObject { ["minLength"] = 1, ["type"] = "string" },
+                new JObject
+                {
+                    ["anyOf"] = new JArray(
+                        new JObject { ["type"] = "null" },
+                        new JObject
+                        {
+                            ["properties"] = new JObject
+                            {
+                                ["status"] = new JObject { ["const"] = "failed" },
+                            },
+                            ["required"] = new JArray("status"),
+                            ["type"] = "object",
+                        }),
+                }));
+            return branches;
+        }
+
+        private static JObject CreateResultDocumentBranch(
+            string status,
+            JObject error,
+            JObject resultBundle)
+        {
+            return CreatePropertiesBranch(
+                ("error", error),
+                ("progress", new JObject
+                {
+                    ["properties"] = new JObject
+                    {
+                        ["phase"] = new JObject { ["const"] = status },
+                    },
+                    ["required"] = new JArray("phase"),
+                    ["type"] = "object",
+                }),
+                ("result_bundle", resultBundle),
+                ("status", new JObject { ["const"] = status }));
+        }
+
+        private static JObject CreatePropertiesBranch(
+            params (string Name, JObject Schema)[] properties)
+        {
+            var value = new JObject();
+            foreach ((string name, JObject propertySchema) in properties)
+            {
+                value[name] = propertySchema;
+            }
+
+            return new JObject { ["properties"] = value };
         }
 
         private static JObject SelectNullableAlternative(
@@ -253,22 +421,27 @@ namespace EmbodiedLab.Unity.Tests
         }
 
         private static JObject SelectDiscriminatedVariant(
+            JObject schema,
             JArray variants,
             JObject schemaRoot,
             JToken actual)
         {
-            var discriminator = actual["type"];
+            var discriminatorProperty = schema["discriminator"]?["propertyName"]?
+                .Value<string>() ?? throw new InvalidOperationException(
+                    "Canonical discriminated union has no propertyName.");
+            var discriminator = actual[discriminatorProperty];
             var matching = variants
                 .OfType<JObject>()
                 .Select(variant => ResolveSchema(variant, schemaRoot, actual))
                 .Where(variant => JToken.DeepEquals(
-                    variant["properties"]?["type"]?["const"],
+                    variant["properties"]?[discriminatorProperty]?["const"],
                     discriminator))
                 .ToArray();
             if (matching.Length != 1)
             {
                 throw new InvalidOperationException(
-                    $"Could not select the canonical schema for discriminator {discriminator}.");
+                    $"Could not select the canonical schema for discriminator " +
+                    $"{discriminatorProperty}={discriminator}.");
             }
 
             return matching[0];

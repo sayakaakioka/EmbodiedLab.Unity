@@ -7,10 +7,10 @@
 bounded artifact/replay reader、Replay playback、
 remote endpoint の HTTPS／WSS invariant、Windows x64 ONNX inference まで実装済みである。
 
-現在は、人間が SDK 全体を初めてレビューできる状態にするため、EmbodiedLab の
-producer、Pydantic model、JSON Schema、generated DTO、fixture、SDK resource limit を
-同じ v0 contract へ厳密に揃えている。EnvForge の現行実装はこの contract を制約せず、
-EnvForge の再移行は第二段階とする。
+人間による初回レビューで確定した EmbodiedLab の producer、Pydantic model、
+6つの JSON Schema、generated DTO、fixture、SDK resource limit の v0 contract 同期は
+完了した。EnvForge の fixture と package revision の追従を次に行い、EnvForge の
+SDK 利用実装への全面移行は第二段階とする。
 
 ## 合意済みの設計
 
@@ -25,8 +25,9 @@ EnvForge の再移行は第二段階とする。
 - 状態監視は WebSocket を主経路とし、接続が健全な間は定期 HTTP polling を
   行わない。HTTP の Result Document 取得は、接続失敗、切断、長時間更新なし、
   または利用者による明示更新時の照合に限定する。
-- submit、train、cancel、成果物取得は一回性の HTTP 操作として扱う。
-- train と cancel の POST は API 契約どおり request body を送らない。
+- submit、cancel、成果物取得は一回性の HTTP 操作として扱う。submit 後の training
+  dispatch は server が所有し、client-visible な train 操作は設けない。
+- cancel の POST は API 契約どおり request body を送らない。
 - submission 作成時に一度だけ返される capability token を job handle が保持し、
   cloud cancel の Bearer token として使う。C# の `CancellationToken` はローカルの
   待機だけを中止し、cloud job の停止には `CancelAsync` を使う。
@@ -35,9 +36,12 @@ EnvForge の再移行は第二段階とする。
   capability token の意味を含む補足 API として説明する。
 - DTO 生成には NJsonSchema 11.6.1 と Newtonsoft.Json を使う。
 - Pydantic の draft 2020-12 schema は、現在使っている `$defs`、ローカル参照、
-  文字列 `const`、`schema | null` 形式の nullable、および現在の2つの
-  discriminated union だけをビルド時に正規化する。形が変わった場合は失敗させ、
+  文字列／整数 `const`、固定長 action tuple の `prefixItems`、`schema | null` 形式の nullable、
+  現在の3つの discriminated union、および固定 action tuple から導出する1つの
+  codegen 用 union だけをビルド時に正規化する。形が変わった場合は失敗させ、
   汎用的な schema dialect 変換器やランタイム互換層にはしない。
+- Result Document、Result Bundle、Replay phase の組合せを表す root `oneOf` は DTO 生成入力から除き、
+  同じ意味制約を package-owned semantic validator と contract test で検証する。
 - discriminated union は `SensorSpec` と `RewardComponent` の抽象基底型として
   生成し、Newtonsoft.Json の discriminator metadata で現在の具象型へ復元する。
 - 生成 DTO は serialize/deserialize の契約に限定する。wire name、文字列 enum、
@@ -45,8 +49,7 @@ EnvForge の再移行は第二段階とする。
   `DataAnnotations` は生成しない。
 - upstream schema で `additionalProperties` が省略された object は、コード生成時に
   宣言済みフィールドだけを持つ DTO とする。Pydantic の標準動作と同様に未宣言
-  フィールドを保持せず、明示的に許可された Result Bundle、Result Document、
-  辞書フィールドだけは追加フィールドを保持する。
+  フィールドを保持せず、明示的な辞書フィールドだけは追加キーを保持する。
 - C# の型名、property 名、enum member 名は Unity 利用者向けに PascalCase とし、
   JSON 上の名前と値は Newtonsoft.Json metadata で保持する。
 - Unity では公式 package `com.unity.nuget.newtonsoft-json` 3.2.2 を使う。
@@ -159,7 +162,8 @@ EnvForge の再移行は第二段階とする。
 [EmbodiedLab.Unity #13](https://github.com/sayakaakioka/EmbodiedLab.Unity/pull/13)
 で以下を完了した。
 
-- submit と train を一つの操作として開始する `EmbodiedLabJob.SubmitAsync`
+- submission 受付を一つの操作として開始する `EmbodiedLabJob.SubmitAsync`。当時の
+  client-visible train request は後の server-owned dispatch 化で削除済み
 - submission ID と capability token からの `Restore`
 - WebSocket 優先の完了待機、明示更新、cloud cancel
 - Unity main context 上の Result 更新 event
@@ -177,9 +181,10 @@ EnvForge の再移行は第二段階とする。
 - 汎用 JSON／artifact API や Replay Bundle の一括 download は追加しない
 - canonical fixture、gzip、相対 chunk path の回帰テスト
 
-### EnvForge の SDK 移行
+### EnvForge の旧SDKへの部分移行
 
-[EnvForge #16](https://github.com/sayakaakioka/EnvForge/pull/16) で以下を完了した。
+[EnvForge #16](https://github.com/sayakaakioka/EnvForge/pull/16) で当時の公開APIへの
+部分移行を完了した。今回確定した契約と再設計後の公開APIへの全面追従は次段階である。
 
 - EmbodiedLab.Unity を Git revision で固定
 - EnvForge 内の重複する cloud transport、契約 DTO、artifact download を削除
@@ -229,7 +234,7 @@ EnvForge の再移行は第二段階とする。
 [EmbodiedLab.Unity #26](https://github.com/sayakaakioka/EmbodiedLab.Unity/issues/26)
 で以下を固定した。
 
-- JSON は 1 MiB、JSONL／JSONL.GZ は 64 MiB、ONNX／ZIP は 1 GiB までとし、
+- JSON は 1 MiB、JSONL／JSONL.GZ は 64 MiB、ONNX は 1 GiB までとし、
   `Content-Length` と実際の stream byte 数の両方で検証
 - 拒否または中断時の `.part` 削除と既存 destination の保持
 - replay manifest は 1 MiB、4,096 chunk、path 1,024文字、chunk ごとの宣言
@@ -307,12 +312,10 @@ EnvForge の再移行は第二段階とする。
 - dependent migration は [EnvForge #18](https://github.com/sayakaakioka/EnvForge/issues/18)
   で追跡し、SDK revision 更新直後に EnvForge 内の duplicate ONNX Runtime binary を削除する
 
-### job recovery と Quickstart 表示のレビュー強化
+### Quickstart 表示と transport hardening
 
 2026-07-20 のレビュー対応で以下を固定した。
 
-- submission 作成後の training-start 失敗は、submission ID と cancel capability を保持する
-  `EmbodiedLabTrainingStartException.Job` として返し、Quickstart は履歴保存、監視、cancel を継続
 - submission 作成前に SDK が idempotency key と cancel capability を生成し、曖昧なHTTP失敗を
   同じ値で一度だけ再試行。APIが同じsubmissionとcapabilityを返した場合だけ処理を継続
 - 履歴 load 失敗後は store を read-only にし、復旧可能な既存 record を後続の Upsert で上書きしない
@@ -351,6 +354,8 @@ EnvForge の再移行は第二段階とする。
 過去の Quickstart history／Advanced UI の完了記録は当時の経緯として上節に残すが、
 現在の package sample には含めない。詳細は
 [tutorial-sample.md](tutorial-sample.md) を参照する。
+
+## 合意済みの次段階
 
 ### tutorial を基準にした公開 API の再設計
 
@@ -525,6 +530,8 @@ EnvForge の再移行は第二段階とする。
   とし、Unity Camera provider はローカル Unity 推論だけで使用する。EmbodiedLab の Cloud Run 学習や
   CI に Unity Editor／graphics runtime を追加しない。
 
+## 追加の完了事項
+
 ### Unity 2022.3.19f1 対応
 
 2026-08-03 に、利用者環境の下限である Unity 2022.3.19f1 を package の最小対応版とした。
@@ -535,13 +542,13 @@ EnvForge の再移行は第二段階とする。
   `run_unity_tests.py`／`run_unity_standalone_smoke.py` を `--unity-version` で切り替える。
 - 両 project で Input System 1.17.0 のみを有効にし、SDK package 自体は Input System
   非依存のままとした。
-- 両 Editor で package／import 済み tutorial test はそれぞれ16件全件成功、実
+- 両 Editor で package／import 済み tutorial test はそれぞれ21件全件成功、実
   `policy.onnx` を使った2件を含めて skip は0件だった。
 - 両 Editor の Windows x64 standalone で ONNX Runtime 1.24.4 の model load、画像 observation、
   inference、action 適用、正常終了を確認した。
-- .NET は contract runner、Quickstart 18件、transport 27件、codegen／compatibility build を
-  成功させ、5 project の `dotnet format` を通した。Python は31件中30件成功、Windows では
-  不要な WSL path test 1件のみ skip とし、今回変更した4ファイルの Ruff check／format を
+- .NET は contract runner、Quickstart 18件、transport 32件、codegen／compatibility build を
+  成功させ、5 project の `dotnet format` を通した。Python は32件中31件成功、Windows では
+  不要な WSL path test 1件のみ skip とし、対象7ファイルの Ruff check／format を
   通した。
 - Editor log には Input Manager の非推奨警告、Audio Listener の package 警告、C# compile
   error のいずれもなかった。
@@ -549,7 +556,8 @@ EnvForge の再移行は第二段階とする。
 ## 完了した SDK スコープ
 
 - API と WebSocket の base URL だけを持つ `EmbodiedLabEndpoints`
-- submit と train を一つの操作として開始する `EmbodiedLabJob.SubmitAsync`
+- submission 受付と server-owned training dispatch を一つの呼び出しで開始する
+  `EmbodiedLabJob.SubmitAsync`
 - submission ID と任意の capability token からの `Restore`
 - WebSocket 優先の `WaitForCompletionAsync` と明示的な `RefreshAsync`
 - cloud job を停止する `CancelAsync`
@@ -568,81 +576,48 @@ EnvForge の再移行は第二段階とする。
 
 ## 次の段階
 
-1. [human-review-guide.md](human-review-guide.md) に沿って SDK の責務と主導線を
-   人間が確認する。
-2. human review の決定に沿って contract と公開 API を整理し、その API で tutorial を
+1. EnvForge の fixture と package revision を確定した contract へ同期する。
+2. immutable job snapshot、型付き artifact result、Replay timeline／Unity player、
+   world／observation／policy の最小公開 API を責務ごとに切り出し、tutorial をその API で
    書き直す。
-3. package version、tag、release 手順を決める。
-4. 第二段階として EnvForge を確定した SDK contract と公開 API へ追従させる。
+3. 第二段階として EnvForge の cloud job、Replay、local inference を SDK 公開 API 利用へ
+   全面移行する。
+4. package version、tag、release 手順を決める。
 5. その後、固定 mode と宣言的 generated mode の選択を設計する。
 
 各段階を一つの Issue と小さな PR に分け、テストと lint が通った状態で次へ進む。
 
-### `envforge_min_version` の削除方針
+### 2026-08-04 契約整理で確定した事項
 
-2026-08-04 の人間レビューで、`envforge_min_version` は現在の責務分担に不要と判断した。
-human review 完了後、EmbodiedLab、EmbodiedLab.Unity、EnvForge を一つの契約変更として
-同時に更新する。
+- pre-release の v0 contract から `envforge_min_version` を削除し、旧 field の互換 layer や
+  新しい v1 contract は作らない。座標系は product-neutral な
+  `left_handed_y_up_meters` とし、旧 `envforge_xz_meters` は残さない。
+- action step、camera、numeric observation、reward の条件値、training／PPO／resource 設定を
+  Scenario Bundle に明記し、EmbodiedLab training runtime と Unity local inference は同じ宣言を
+  使用する。未定義 field は拒否し、未対応値を黙って補正しない。
+- 固定 tutorial から未使用の `front_distance` を削除する。汎用 `DistanceSensor` 型は contract に
+  残すが、sensor 不在時の training fallback と固定 Replay 診断出力は残さない。
+- server 管理の artifact path、callback、任意の Python class、`verbose` は Scenario Bundle へ
+  公開せず、実行時に解決した training／library／resource 値は Result Bundle に記録する。
+- EmbodiedLab の Pydantic model、runtime、schema、fixture、test を先に更新し、EmbodiedLab.Unity は
+  その6 schemaから DTO、sample、fixture、test を同期した。EnvForge の fixture と package revision
+  は次に同期し、SDK 公開 API への全面移行は第二段階で行う。
+- merge は EmbodiedLab、EmbodiedLab.Unity、EnvForge の依存順とする。
 
-- pre-release の v0 contract から直接削除し、旧 field の互換 layer や新しい v1 contract は
-  作らない。
-- `coordinate_system` の `envforge_xz_meters` も product-neutral で座標軸、向き、単位を
-  明示する値へ改名し、旧 enum value は残さない。正確な名称は3 repository の実装時に
-  contract 全体と照合して決める。
-- `action_space` に `forward_step_meters: 0.2` と `turn_degrees_per_step: 15.0` を追加し、
-  EmbodiedLab training runtime と Unity local inference が同じ Scenario Bundle の値を使う。
-  両 runtime の重複した直書き定数は削除し、値を変えた scenario では再学習を必須とする。
-- camera resolution と semantic mode は Scenario Bundle を正本とする。EmbodiedLab の
-  observation／policy network と Unity の render texture／readback／ONNX tensor 検証は
-  `ForwardCameraSensor` の値から構成し、112 x 84 や mode を重複した定数として持たない。
-  download した ONNX metadata が scenario の input shape と一致しない場合は明確に失敗させる。
-  現在未対応の semantic mode は値を無視せず、mode 選択時に unsupported error とする。
-- 固定 tutorial では policy input に使っていない `front_distance` を Scenario の sensor から
-  削除する。汎用 `DistanceSensor` 型は将来の対応用に contract へ残すが、sensor 不在時に
-  5 meter を補う training fallback と固定 Replay 診断出力は削除する。
-- 実際の numeric policy input である goal angle と goal distance を Scenario／model contract に
-  明示し、EmbodiedLab と Unity が同じ宣言から `obs_1` を構成する。`NumericValueCount = 2`、
-  `observation_layout` の不正確な初期値、配列 index の重複直書きは契約由来へ置き換える。
-- reward shaping は、すべてを `per_step` として表す現在の形をやめ、条件付き報酬ごとに
-  意味の合う contract type と判定値を持たせる。現行挙動を保つため、`goal_progress` の
-  `minimum_delta_meters: 0.005`、`wide_angle_penalty` の
-  `minimum_absolute_angle_degrees: 90.0`、`rear_angle_penalty` の
-  `minimum_absolute_angle_degrees: 150.0`、`inactive_penalty` の
-  `maximum_absolute_forward: 0.001` を Scenario Bundle に明示する。field 名は3 repository の
-  contract 更新時に型全体と照合して確定する。
-- `movement_threshold` を報酬 component として表す現在の疑似的な `per_step` component は
-  削除し、inactive 判定値として `inactive_penalty` へ統合する。EmbodiedLab runtime の
-  0.005／90／150 などの判定定数、および default Scenario を重ねて補う処理も削除し、
-  Scenario Bundle の値だけから判定する。既存の weight と条件分岐の優先順位は維持し、
-  reward 設定を変更した scenario では再学習を必須とする。
-- training は、学習結果または使用 resource に影響する値を Scenario Bundle の JSON から
-  すべて受け取る。現在省略されている `n_envs: 1`、`cpu_count: null`、
-  `torch_num_threads: null`、`n_epochs: 3` を固定 tutorial JSON に明記し、nullable resource 値の
-  `null` は runtime による自動選択を意味するものとして contract に定義する。
-- Stable-Baselines3 PPO に現在渡していない学習用の既定値も、型付きの training contract と
-  固定 tutorial JSON に明記する。少なくとも advantage、clipping、value loss、gradient、
-  state-dependent exploration、KL 制限に関する設定を対象にし、library version の既定値に
-  学習挙動を依存させない。正確な field 一覧と現在値は、固定している Stable-Baselines3
-  version の constructor と照合して3 repository の contract 更新時に確定する。
-- `cpu_count`、`torch_num_threads`、`n_envs`、device などの resource 指定は、受理してログへ
-  出すだけにせず、training job の実行環境へ反映する。利用可能な resource を超える指定や
-  未対応の device は黙って補正せず、submission validation または job 開始時に明確に失敗させる。
-- server 管理の artifact path、callback、任意の Python class、`verbose` など、学習内容や
-  resource 要求ではない実装用の値は Scenario Bundle へ公開しない。任意 class 名や
-  `policy_kwargs` をそのまま受け取る汎用実行 API にはせず、公開する policy 設定は検証可能な
-  型付き field に限定する。実行時に解決した全 training 値、library version、resource 値は
-  Result Bundle に記録し、再現可能にする。
-- 新しい training field を追加するまでは、未定義 field が Pydantic に無視されて「指定したが
-  反映されない」状態を避ける。training model も unknown field を forbid し、3 repository の
-  contract と runtime が揃うまでは tutorial JSON に先行追加しない。
-- EmbodiedLab の Pydantic model、JSON Schema、result compatibility、fixture、test、文書を
-  source of truth として先に更新する。
-- EmbodiedLab.Unity は同期した Schema から C# contract を再生成し、sample、fixture、test を
-  更新する。
-- 現在の EnvForge runtime はこの field を消費していないため、まず fixture と契約説明を
-  更新する。SDK を使う実装への全面移行は、上記の第二段階として別途行う。
-- 3 repository の開発と整合性検証は並行して行い、merge は EmbodiedLab、
-  EmbodiedLab.Unity、EnvForge の依存順とする。
+### 2026-08-04 契約同期で完了した範囲
+
+- EmbodiedLab main の6 schema と4 canonical fixture を provenance 付きで同期し、C# DTO を再生成した。
+- client-visible な training-start request、`TrainingResponse`、
+  `EmbodiedLabTrainingStartException` と sample 側の回収処理を削除した。
+- Result Document／Result Bundle／Replay の状態間制約を package-owned validator で固定した。
+- model、Replay manifest、Replay chunk の `size_bytes` と SHA-256 を download 前後で検証し、
+  不一致時に既存 file を保持する transport test を追加した。
+- train／eval Replay chunk を派生型として扱い、phase 固有 metadata を sample と test から
+  基底型の property として参照しない構造へ移行した。
+
+公開 API の immutable snapshot、共有 completion monitor、型付き download result、
+Replay timeline／Unity player、world／observation／policy API への本格的な切り出しと、
+それらを使う tutorial の再構成は引き続き次の実装単位とする。
 
 ## 保留事項
 

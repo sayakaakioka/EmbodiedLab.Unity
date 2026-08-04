@@ -16,12 +16,21 @@ namespace EmbodiedLab.Contracts
     public partial class ActionSpace
     {
 
-        [Newtonsoft.Json.JsonProperty("layout", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore, ItemConverterType = typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public System.Collections.Generic.ICollection<Layout> Layout { get; set; }
+        [Newtonsoft.Json.JsonProperty("forward_step_meters", Required = Newtonsoft.Json.Required.Always)]
+        public double ForwardStepMeters { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("type", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("layout", Required = Newtonsoft.Json.Required.Always, ItemConverterType = typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public System.Collections.Generic.ICollection<Layout> Layout { get; set; } = new System.Collections.ObjectModel.Collection<Layout>();
+
+        [Newtonsoft.Json.JsonProperty("step_duration_seconds", Required = Newtonsoft.Json.Required.Always)]
+        public double StepDurationSeconds { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("turn_degrees_per_step", Required = Newtonsoft.Json.Required.Always)]
+        public double TurnDegreesPerStep { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("type", Required = Newtonsoft.Json.Required.Always)]
         [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public ActionSpaceType Type { get; set; } = EmbodiedLab.Contracts.ActionSpaceType.Continuous;
+        public ActionSpaceType Type { get; set; }
 
     }
 
@@ -39,35 +48,6 @@ namespace EmbodiedLab.Contracts
     }
 
     /// <summary>
-    /// Supported artifact formats.
-    /// </summary>
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
-    public enum ArtifactFormat
-    {
-
-        [System.Runtime.Serialization.EnumMember(Value = @"onnx")]
-        Onnx = 0,
-
-
-        [System.Runtime.Serialization.EnumMember(Value = @"json")]
-        Json = 1,
-
-
-        [System.Runtime.Serialization.EnumMember(Value = @"jsonl")]
-        Jsonl = 2,
-
-
-        [System.Runtime.Serialization.EnumMember(Value = @"jsonl.gz")]
-        JsonlGz = 3,
-
-
-        [System.Runtime.Serialization.EnumMember(Value = @"zip")]
-        Zip = 4,
-
-
-    }
-
-    /// <summary>
     /// Location and format of a result artifact.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
@@ -79,14 +59,20 @@ namespace EmbodiedLab.Contracts
 
         [Newtonsoft.Json.JsonProperty("format", Required = Newtonsoft.Json.Required.Always)]
         [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public ArtifactFormat Format { get; set; }
+        public ArtifactLocationFormat Format { get; set; }
 
         [Newtonsoft.Json.JsonProperty("path", Required = Newtonsoft.Json.Required.Always)]
         public string Path { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("storage", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("sha256", Required = Newtonsoft.Json.Required.Always)]
+        public string Sha256 { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("size_bytes", Required = Newtonsoft.Json.Required.Always)]
+        public int SizeBytes { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("storage", Required = Newtonsoft.Json.Required.Always)]
         [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public ArtifactStorage Storage { get; set; } = EmbodiedLab.Contracts.ArtifactStorage.Gcs;
+        public ArtifactStorage Storage { get; set; }
 
     }
 
@@ -125,29 +111,20 @@ namespace EmbodiedLab.Contracts
     public partial class CollisionRewardComponent : RewardComponent
     {
 
-        [Newtonsoft.Json.JsonProperty("name", Required = Newtonsoft.Json.Required.Always)]
-        public string Name { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("weight", Required = Newtonsoft.Json.Required.Always)]
-        public double Weight { get; set; }
-
     }
 
     /// <summary>
-    /// Compatibility metadata required by EnvForge and EmbodiedLab.
+    /// Compatibility metadata required by EmbodiedLab clients.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public partial class Compatibility
     {
 
-        [Newtonsoft.Json.JsonProperty("envforge_min_version", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public string EnvforgeMinVersion { get; set; } = "0.1.0";
+        [Newtonsoft.Json.JsonProperty("robot_version", Required = Newtonsoft.Json.Required.Always)]
+        public string RobotVersion { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("robot_version", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public string RobotVersion { get; set; } = "simple_robot.v1";
-
-        [Newtonsoft.Json.JsonProperty("sensor_version", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public string SensorVersion { get; set; } = "basic_sensors.v0";
+        [Newtonsoft.Json.JsonProperty("sensor_version", Required = Newtonsoft.Json.Required.Always)]
+        public string SensorVersion { get; set; }
 
     }
 
@@ -158,8 +135,8 @@ namespace EmbodiedLab.Contracts
     public enum CoordinateSystem
     {
 
-        [System.Runtime.Serialization.EnumMember(Value = @"envforge_xz_meters")]
-        EnvforgeXzMeters = 0,
+        [System.Runtime.Serialization.EnumMember(Value = @"left_handed_y_up_meters")]
+        LeftHandedYUpMeters = 0,
 
 
     }
@@ -171,11 +148,11 @@ namespace EmbodiedLab.Contracts
     public partial class CreatedBy
     {
 
-        [Newtonsoft.Json.JsonProperty("tool", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public string Tool { get; set; } = "EnvForge";
+        [Newtonsoft.Json.JsonProperty("tool", Required = Newtonsoft.Json.Required.Always)]
+        public string Tool { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("version", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public string Version { get; set; } = "0.1.0";
+        [Newtonsoft.Json.JsonProperty("version", Required = Newtonsoft.Json.Required.Always)]
+        public string Version { get; set; }
 
     }
 
@@ -186,14 +163,11 @@ namespace EmbodiedLab.Contracts
     public partial class DistanceDeltaRewardComponent : RewardComponent
     {
 
-        [Newtonsoft.Json.JsonProperty("name", Required = Newtonsoft.Json.Required.Always)]
-        public string Name { get; set; }
+        [Newtonsoft.Json.JsonProperty("minimum_delta_meters", Required = Newtonsoft.Json.Required.Always)]
+        public double MinimumDeltaMeters { get; set; }
 
         [Newtonsoft.Json.JsonProperty("target", Required = Newtonsoft.Json.Required.Always)]
         public string Target { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("weight", Required = Newtonsoft.Json.Required.Always)]
-        public double Weight { get; set; }
 
     }
 
@@ -204,15 +178,12 @@ namespace EmbodiedLab.Contracts
     public partial class DistanceSensor : SensorSpec
     {
 
-        [Newtonsoft.Json.JsonProperty("direction", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("direction", Required = Newtonsoft.Json.Required.Always)]
         [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public SensorDirection Direction { get; set; } = EmbodiedLab.Contracts.SensorDirection.Forward;
+        public SensorDirection Direction { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("id", Required = Newtonsoft.Json.Required.Always)]
-        public string Id { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("range_meters", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public double RangeMeters { get; set; } = 5D;
+        [Newtonsoft.Json.JsonProperty("range_meters", Required = Newtonsoft.Json.Required.Always)]
+        public double RangeMeters { get; set; }
 
     }
 
@@ -223,11 +194,52 @@ namespace EmbodiedLab.Contracts
     public partial class ErrorReport
     {
 
-        [Newtonsoft.Json.JsonProperty("details", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("details", Required = Newtonsoft.Json.Required.AllowNull)]
         public string Details { get; set; }
 
         [Newtonsoft.Json.JsonProperty("message", Required = Newtonsoft.Json.Required.Always)]
         public string Message { get; set; }
+
+    }
+
+    /// <summary>
+    /// One deterministic evaluation Replay chunk.
+    /// </summary>
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public partial class EvalReplayBundleChunk : ReplayBundleChunk
+    {
+
+        [Newtonsoft.Json.JsonProperty("avg_reward", Required = Newtonsoft.Json.Required.Always)]
+        public double AvgReward { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("avg_steps", Required = Newtonsoft.Json.Required.Always)]
+        public double AvgSteps { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("end_step", Required = Newtonsoft.Json.Required.AllowNull)]
+        public object EndStep { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("episode_count", Required = Newtonsoft.Json.Required.Always)]
+        public int EpisodeCount { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("format", Required = Newtonsoft.Json.Required.Always)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public EvalReplayBundleChunkFormat Format { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("path", Required = Newtonsoft.Json.Required.Always)]
+        public string Path { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("policy_mode", Required = Newtonsoft.Json.Required.Always)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public EvalReplayBundleChunkPolicyMode PolicyMode { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("start_step", Required = Newtonsoft.Json.Required.AllowNull)]
+        public object StartStep { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("step_count", Required = Newtonsoft.Json.Required.Always)]
+        public int StepCount { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("success_rate", Required = Newtonsoft.Json.Required.Always)]
+        public double SuccessRate { get; set; }
 
     }
 
@@ -238,39 +250,39 @@ namespace EmbodiedLab.Contracts
     public partial class ForwardCameraSensor : SensorSpec
     {
 
-        [Newtonsoft.Json.JsonProperty("far_clip_meters", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public double FarClipMeters { get; set; } = 100D;
+        [Newtonsoft.Json.JsonProperty("far_clip_meters", Required = Newtonsoft.Json.Required.Always)]
+        public double FarClipMeters { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("height", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public int Height { get; set; } = 84;
+        [Newtonsoft.Json.JsonProperty("height", Required = Newtonsoft.Json.Required.Always)]
+        public int Height { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("id", Required = Newtonsoft.Json.Required.Always)]
-        public string Id { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("mount_height_max_meters", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("mount_height_max_meters", Required = Newtonsoft.Json.Required.AllowNull)]
         public double? MountHeightMaxMeters { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("mount_height_meters", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public double MountHeightMeters { get; set; } = 0.6D;
+        [Newtonsoft.Json.JsonProperty("mount_height_meters", Required = Newtonsoft.Json.Required.Always)]
+        public double MountHeightMeters { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("mount_height_min_meters", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("mount_height_min_meters", Required = Newtonsoft.Json.Required.AllowNull)]
         public double? MountHeightMinMeters { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("near_clip_meters", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public double NearClipMeters { get; set; } = 0.05D;
+        [Newtonsoft.Json.JsonProperty("near_clip_meters", Required = Newtonsoft.Json.Required.Always)]
+        public double NearClipMeters { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("pitch_degrees", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public double PitchDegrees { get; set; } = 0D;
+        [Newtonsoft.Json.JsonProperty("observation_name", Required = Newtonsoft.Json.Required.Always)]
+        public string ObservationName { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("semantic_mode", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("pitch_degrees", Required = Newtonsoft.Json.Required.Always)]
+        public double PitchDegrees { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("semantic_mode", Required = Newtonsoft.Json.Required.Always)]
         [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public SemanticMode SemanticMode { get; set; } = EmbodiedLab.Contracts.SemanticMode.TraversableVsBlocked;
+        public SemanticMode SemanticMode { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("vertical_fov_degrees", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public double VerticalFovDegrees { get; set; } = 70D;
+        [Newtonsoft.Json.JsonProperty("vertical_fov_degrees", Required = Newtonsoft.Json.Required.Always)]
+        public double VerticalFovDegrees { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("width", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public int Width { get; set; } = 112;
+        [Newtonsoft.Json.JsonProperty("width", Required = Newtonsoft.Json.Required.Always)]
+        public int Width { get; set; }
 
     }
 
@@ -293,42 +305,49 @@ namespace EmbodiedLab.Contracts
     }
 
     /// <summary>
-    /// Model artifact location with Unity compatibility metadata.
+    /// Goal-relative numeric observation consumed by the policy.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
-    public partial class ModelArtifactLocation
+    public partial class GoalVectorSensor : SensorSpec
     {
 
-        [Newtonsoft.Json.JsonProperty("bucket", Required = Newtonsoft.Json.Required.Always)]
-        public string Bucket { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("format", Required = Newtonsoft.Json.Required.Always)]
-        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public ArtifactFormat Format { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("inputs", Required = Newtonsoft.Json.Required.Always)]
-        public System.Collections.Generic.ICollection<ModelInput> Inputs { get; set; } = new System.Collections.ObjectModel.Collection<ModelInput>();
-
-        [Newtonsoft.Json.JsonProperty("opset_version", Required = Newtonsoft.Json.Required.Always)]
-        public int OpsetVersion { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("output", Required = Newtonsoft.Json.Required.Always)]
-        public ModelOutput Output { get; set; } = new ModelOutput();
-
-        [Newtonsoft.Json.JsonProperty("path", Required = Newtonsoft.Json.Required.Always)]
-        public string Path { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("storage", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public ArtifactStorage Storage { get; set; } = EmbodiedLab.Contracts.ArtifactStorage.Gcs;
+        [Newtonsoft.Json.JsonProperty("observation_name", Required = Newtonsoft.Json.Required.Always)]
+        public string ObservationName { get; set; }
 
         [Newtonsoft.Json.JsonProperty("target", Required = Newtonsoft.Json.Required.Always)]
         public string Target { get; set; }
 
+        [Newtonsoft.Json.JsonProperty("values", Required = Newtonsoft.Json.Required.Always, ItemConverterType = typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public System.Collections.Generic.ICollection<Values> Values { get; set; } = new System.Collections.ObjectModel.Collection<Values>();
+
     }
 
     /// <summary>
-    /// Input metadata for an EnvForge-loadable model artifact.
+    /// Penalty enabled when forward action stays below a threshold.
+    /// </summary>
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public partial class MaximumAbsoluteForwardRewardComponent : RewardComponent
+    {
+
+        [Newtonsoft.Json.JsonProperty("maximum_absolute_forward", Required = Newtonsoft.Json.Required.Always)]
+        public double MaximumAbsoluteForward { get; set; }
+
+    }
+
+    /// <summary>
+    /// Penalty enabled above an absolute goal-angle threshold.
+    /// </summary>
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public partial class MinimumAbsoluteAngleRewardComponent : RewardComponent
+    {
+
+        [Newtonsoft.Json.JsonProperty("minimum_absolute_angle_degrees", Required = Newtonsoft.Json.Required.Always)]
+        public double MinimumAbsoluteAngleDegrees { get; set; }
+
+    }
+
+    /// <summary>
+    /// Input metadata for a client-loadable model artifact.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public partial class ModelInput
@@ -337,32 +356,74 @@ namespace EmbodiedLab.Contracts
         [Newtonsoft.Json.JsonProperty("dtype", Required = Newtonsoft.Json.Required.Always)]
         public string Dtype { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("layout", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public System.Collections.Generic.ICollection<string> Layout { get; set; }
+        [Newtonsoft.Json.JsonProperty("layout", Required = Newtonsoft.Json.Required.Always)]
+        public System.Collections.Generic.ICollection<string> Layout { get; set; } = new System.Collections.ObjectModel.Collection<string>();
 
         [Newtonsoft.Json.JsonProperty("name", Required = Newtonsoft.Json.Required.Always)]
         public string Name { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("shape", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public System.Collections.Generic.ICollection<int> Shape { get; set; }
+        [Newtonsoft.Json.JsonProperty("shape", Required = Newtonsoft.Json.Required.Always)]
+        public System.Collections.Generic.ICollection<int> Shape { get; set; } = new System.Collections.ObjectModel.Collection<int>();
 
     }
 
     /// <summary>
-    /// Output metadata for an EnvForge-loadable model artifact.
+    /// Output metadata for a client-loadable model artifact.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public partial class ModelOutput
     {
 
-        [Newtonsoft.Json.JsonProperty("action_mapping", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("action_mapping", Required = Newtonsoft.Json.Required.AllowNull)]
         public System.Collections.Generic.IDictionary<string, string> ActionMapping { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("layout", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public System.Collections.Generic.ICollection<string> Layout { get; set; }
+        [Newtonsoft.Json.JsonProperty("layout", Required = Newtonsoft.Json.Required.Always)]
+        public System.Collections.Generic.ICollection<string> Layout { get; set; } = new System.Collections.ObjectModel.Collection<string>();
 
         [Newtonsoft.Json.JsonProperty("name", Required = Newtonsoft.Json.Required.Always)]
         public string Name { get; set; }
+
+    }
+
+    /// <summary>
+    /// Canonical ONNX Runtime artifact metadata.
+    /// </summary>
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public partial class OnnxModelArtifactLocation
+    {
+
+        [Newtonsoft.Json.JsonProperty("bucket", Required = Newtonsoft.Json.Required.Always)]
+        public string Bucket { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("format", Required = Newtonsoft.Json.Required.Always)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public OnnxModelArtifactLocationFormat Format { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("inputs", Required = Newtonsoft.Json.Required.Always)]
+        public System.Collections.Generic.ICollection<ModelInput> Inputs { get; set; } = new System.Collections.ObjectModel.Collection<ModelInput>();
+
+        [Newtonsoft.Json.JsonProperty("opset_version", Required = Newtonsoft.Json.Required.Always)]
+        public OnnxModelArtifactLocationOpsetVersion OpsetVersion { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("output", Required = Newtonsoft.Json.Required.Always)]
+        public ModelOutput Output { get; set; } = new ModelOutput();
+
+        [Newtonsoft.Json.JsonProperty("path", Required = Newtonsoft.Json.Required.Always)]
+        public string Path { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("sha256", Required = Newtonsoft.Json.Required.Always)]
+        public string Sha256 { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("size_bytes", Required = Newtonsoft.Json.Required.Always)]
+        public int SizeBytes { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("storage", Required = Newtonsoft.Json.Required.Always)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public ArtifactStorage Storage { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("target", Required = Newtonsoft.Json.Required.Always)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public OnnxModelArtifactLocationTarget Target { get; set; }
 
     }
 
@@ -372,12 +433,6 @@ namespace EmbodiedLab.Contracts
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public partial class PerStepRewardComponent : RewardComponent
     {
-
-        [Newtonsoft.Json.JsonProperty("name", Required = Newtonsoft.Json.Required.Always)]
-        public string Name { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("weight", Required = Newtonsoft.Json.Required.Always)]
-        public double Weight { get; set; }
 
     }
 
@@ -391,13 +446,13 @@ namespace EmbodiedLab.Contracts
         [Newtonsoft.Json.JsonProperty("position", Required = Newtonsoft.Json.Required.Always)]
         public Position2D Position { get; set; } = new Position2D();
 
-        [Newtonsoft.Json.JsonProperty("rotation_y_degrees", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public double RotationYDegrees { get; set; } = 0D;
+        [Newtonsoft.Json.JsonProperty("rotation_y_degrees", Required = Newtonsoft.Json.Required.Always)]
+        public double RotationYDegrees { get; set; }
 
     }
 
     /// <summary>
-    /// A point on the EnvForge horizontal x/z plane.
+    /// A point on the horizontal x/z plane.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public partial class Position2D
@@ -440,56 +495,38 @@ namespace EmbodiedLab.Contracts
     public partial class ReplayAction
     {
 
-        [Newtonsoft.Json.JsonProperty("values", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public System.Collections.Generic.ICollection<ReplayNamedValue> Values { get; set; }
+        [Newtonsoft.Json.JsonProperty("values", Required = Newtonsoft.Json.Required.Always)]
+        public System.Collections.Generic.ICollection<ReplayActionValue> Values { get; set; } = new System.Collections.ObjectModel.Collection<ReplayActionValue>();
 
     }
 
-    /// <summary>
-    /// One compressed train or evaluation chunk in a Replay Bundle.
-    /// </summary>
+    [Newtonsoft.Json.JsonConverter(typeof(JsonInheritanceConverter), "name")]
+    [JsonInheritanceAttribute("forward", typeof(ReplayForwardActionValue))]
+    [JsonInheritanceAttribute("turn", typeof(ReplayTurnActionValue))]
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
-    public partial class ReplayBundleChunk
+    public abstract partial class ReplayActionValue
     {
 
-        [Newtonsoft.Json.JsonProperty("avg_reward", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public double? AvgReward { get; set; }
+        [Newtonsoft.Json.JsonProperty("value", Required = Newtonsoft.Json.Required.Always)]
+        public double Value { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("avg_steps", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public double? AvgSteps { get; set; }
+    }
+
+    [Newtonsoft.Json.JsonConverter(typeof(JsonInheritanceConverter), "phase")]
+    [JsonInheritanceAttribute("eval", typeof(EvalReplayBundleChunk))]
+    [JsonInheritanceAttribute("train", typeof(TrainReplayBundleChunk))]
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public abstract partial class ReplayBundleChunk
+    {
 
         [Newtonsoft.Json.JsonProperty("checkpoint_step", Required = Newtonsoft.Json.Required.Always)]
         public int CheckpointStep { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("end_step", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public int? EndStep { get; set; }
+        [Newtonsoft.Json.JsonProperty("sha256", Required = Newtonsoft.Json.Required.Always)]
+        public string Sha256 { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("episode_count", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public int? EpisodeCount { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("format", Required = Newtonsoft.Json.Required.Always)]
-        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public ReplayBundleChunkFormat Format { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("path", Required = Newtonsoft.Json.Required.Always)]
-        public string Path { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("phase", Required = Newtonsoft.Json.Required.Always)]
-        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public ReplayBundleChunkPhase Phase { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("policy_mode", Required = Newtonsoft.Json.Required.Always)]
-        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public ReplayBundleChunkPolicyMode PolicyMode { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("start_step", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public int? StartStep { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("step_count", Required = Newtonsoft.Json.Required.Always)]
-        public int StepCount { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("success_rate", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public double? SuccessRate { get; set; }
+        [Newtonsoft.Json.JsonProperty("size_bytes", Required = Newtonsoft.Json.Required.Always)]
+        public int SizeBytes { get; set; }
 
     }
 
@@ -500,8 +537,8 @@ namespace EmbodiedLab.Contracts
     public partial class ReplayBundleManifest
     {
 
-        [Newtonsoft.Json.JsonProperty("chunks", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public System.Collections.Generic.ICollection<ReplayBundleChunk> Chunks { get; set; }
+        [Newtonsoft.Json.JsonProperty("chunks", Required = Newtonsoft.Json.Required.Always)]
+        public System.Collections.Generic.ICollection<ReplayBundleChunk> Chunks { get; set; } = new System.Collections.ObjectModel.Collection<ReplayBundleChunk>();
 
         [Newtonsoft.Json.JsonProperty("job_id", Required = Newtonsoft.Json.Required.Always)]
         public string JobId { get; set; }
@@ -509,9 +546,9 @@ namespace EmbodiedLab.Contracts
         [Newtonsoft.Json.JsonProperty("scenario_id", Required = Newtonsoft.Json.Required.Always)]
         public string ScenarioId { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("schema_version", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("schema_version", Required = Newtonsoft.Json.Required.Always)]
         [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public ReplayBundleManifestSchemaVersion SchemaVersion { get; set; } = EmbodiedLab.Contracts.ReplayBundleManifestSchemaVersion.ReplayBundleV0;
+        public ReplayBundleManifestSchemaVersion SchemaVersion { get; set; }
 
         [Newtonsoft.Json.JsonProperty("total_timesteps", Required = Newtonsoft.Json.Required.Always)]
         public int TotalTimesteps { get; set; }
@@ -525,10 +562,10 @@ namespace EmbodiedLab.Contracts
     public partial class ReplayEvent
     {
 
-        [Newtonsoft.Json.JsonProperty("message", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("message", Required = Newtonsoft.Json.Required.AllowNull)]
         public string Message { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("object_id", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("object_id", Required = Newtonsoft.Json.Required.AllowNull)]
         public string ObjectId { get; set; }
 
         [Newtonsoft.Json.JsonProperty("type", Required = Newtonsoft.Json.Required.Always)]
@@ -537,14 +574,23 @@ namespace EmbodiedLab.Contracts
     }
 
     /// <summary>
-    /// One JSON Lines row in an EnvForge replay log.
+    /// The forward component of the continuous action.
+    /// </summary>
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public partial class ReplayForwardActionValue : ReplayActionValue
+    {
+
+    }
+
+    /// <summary>
+    /// One JSON Lines row in a Replay Log.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public partial class ReplayLogStep
     {
 
-        [Newtonsoft.Json.JsonProperty("action", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public ReplayAction Action { get; set; }
+        [Newtonsoft.Json.JsonProperty("action", Required = Newtonsoft.Json.Required.Always)]
+        public ReplayAction Action { get; set; } = new ReplayAction();
 
         [Newtonsoft.Json.JsonProperty("checkpoint_step", Required = Newtonsoft.Json.Required.Always)]
         public int CheckpointStep { get; set; }
@@ -555,17 +601,19 @@ namespace EmbodiedLab.Contracts
         [Newtonsoft.Json.JsonProperty("episode_id", Required = Newtonsoft.Json.Required.Always)]
         public string EpisodeId { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("events", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public System.Collections.Generic.ICollection<ReplayEvent> Events { get; set; }
+        [Newtonsoft.Json.JsonProperty("events", Required = Newtonsoft.Json.Required.Always)]
+        public System.Collections.Generic.ICollection<ReplayEvent> Events { get; set; } = new System.Collections.ObjectModel.Collection<ReplayEvent>();
 
         [Newtonsoft.Json.JsonProperty("job_id", Required = Newtonsoft.Json.Required.Always)]
         public string JobId { get; set; }
 
         [Newtonsoft.Json.JsonProperty("phase", Required = Newtonsoft.Json.Required.Always)]
-        public string Phase { get; set; }
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public ReplayLogStepPhase Phase { get; set; }
 
         [Newtonsoft.Json.JsonProperty("policy_mode", Required = Newtonsoft.Json.Required.Always)]
-        public string PolicyMode { get; set; }
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public ReplayLogStepPolicyMode PolicyMode { get; set; }
 
         [Newtonsoft.Json.JsonProperty("reward", Required = Newtonsoft.Json.Required.Always)]
         public ReplayReward Reward { get; set; } = new ReplayReward();
@@ -576,20 +624,20 @@ namespace EmbodiedLab.Contracts
         [Newtonsoft.Json.JsonProperty("scenario_id", Required = Newtonsoft.Json.Required.Always)]
         public string ScenarioId { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("schema_version", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("schema_version", Required = Newtonsoft.Json.Required.Always)]
         [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public ReplayLogStepSchemaVersion SchemaVersion { get; set; } = EmbodiedLab.Contracts.ReplayLogStepSchemaVersion.ReplayLogV0;
+        public ReplayLogStepSchemaVersion SchemaVersion { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("sensors", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public System.Collections.Generic.ICollection<ReplaySensorSummary> Sensors { get; set; }
+        [Newtonsoft.Json.JsonProperty("sensors", Required = Newtonsoft.Json.Required.Always)]
+        public System.Collections.Generic.ICollection<ReplaySensorSummary> Sensors { get; set; } = new System.Collections.ObjectModel.Collection<ReplaySensorSummary>();
 
         [Newtonsoft.Json.JsonProperty("step_index", Required = Newtonsoft.Json.Required.Always)]
         public int StepIndex { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("terminated", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public bool Terminated { get; set; } = false;
+        [Newtonsoft.Json.JsonProperty("terminated", Required = Newtonsoft.Json.Required.Always)]
+        public bool Terminated { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("termination_reason", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("termination_reason", Required = Newtonsoft.Json.Required.AllowNull)]
         public string TerminationReason { get; set; }
 
         [Newtonsoft.Json.JsonProperty("time_seconds", Required = Newtonsoft.Json.Required.Always)]
@@ -634,8 +682,8 @@ namespace EmbodiedLab.Contracts
     public partial class ReplayReward
     {
 
-        [Newtonsoft.Json.JsonProperty("components", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public System.Collections.Generic.ICollection<ReplayNamedValue> Components { get; set; }
+        [Newtonsoft.Json.JsonProperty("components", Required = Newtonsoft.Json.Required.Always)]
+        public System.Collections.Generic.ICollection<ReplayNamedValue> Components { get; set; } = new System.Collections.ObjectModel.Collection<ReplayNamedValue>();
 
         [Newtonsoft.Json.JsonProperty("total", Required = Newtonsoft.Json.Required.Always)]
         public double Total { get; set; }
@@ -676,40 +724,154 @@ namespace EmbodiedLab.Contracts
     }
 
     /// <summary>
+    /// The turn component of the continuous action.
+    /// </summary>
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public partial class ReplayTurnActionValue : ReplayActionValue
+    {
+
+    }
+
+    /// <summary>
+    /// Exact library, hyperparameters, and resources used by a training run.
+    /// </summary>
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public partial class ResolvedTrainingConfig
+    {
+
+        [Newtonsoft.Json.JsonProperty("algorithm", Required = Newtonsoft.Json.Required.Always)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public ResolvedTrainingConfigAlgorithm Algorithm { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("batch_size", Required = Newtonsoft.Json.Required.Always)]
+        public int BatchSize { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("clip_range", Required = Newtonsoft.Json.Required.Always)]
+        public double ClipRange { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("clip_range_vf", Required = Newtonsoft.Json.Required.AllowNull)]
+        public double? ClipRangeVf { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("cpu_count", Required = Newtonsoft.Json.Required.Always)]
+        public int CpuCount { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("device", Required = Newtonsoft.Json.Required.Always)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public ResolvedTrainingConfigDevice Device { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("ent_coef", Required = Newtonsoft.Json.Required.Always)]
+        public double EntCoef { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("eval_episodes", Required = Newtonsoft.Json.Required.Always)]
+        public int EvalEpisodes { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("gae_lambda", Required = Newtonsoft.Json.Required.Always)]
+        public double GaeLambda { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("gamma", Required = Newtonsoft.Json.Required.Always)]
+        public double Gamma { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("learning_rate", Required = Newtonsoft.Json.Required.Always)]
+        public double LearningRate { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("library", Required = Newtonsoft.Json.Required.Always)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public ResolvedTrainingConfigLibrary Library { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("library_version", Required = Newtonsoft.Json.Required.Always)]
+        public string LibraryVersion { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("max_episode_steps", Required = Newtonsoft.Json.Required.Always)]
+        public int MaxEpisodeSteps { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("max_grad_norm", Required = Newtonsoft.Json.Required.Always)]
+        public double MaxGradNorm { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("n_envs", Required = Newtonsoft.Json.Required.Always)]
+        public int NEnvs { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("n_epochs", Required = Newtonsoft.Json.Required.Always)]
+        public int NEpochs { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("n_steps", Required = Newtonsoft.Json.Required.Always)]
+        public int NSteps { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("normalize_advantage", Required = Newtonsoft.Json.Required.Always)]
+        public bool NormalizeAdvantage { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("randomize_start", Required = Newtonsoft.Json.Required.Always)]
+        public bool RandomizeStart { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("replay_eval_interval_steps", Required = Newtonsoft.Json.Required.Always)]
+        public int ReplayEvalIntervalSteps { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("replay_train_chunk_steps", Required = Newtonsoft.Json.Required.Always)]
+        public int ReplayTrainChunkSteps { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("requested_cpu_count", Required = Newtonsoft.Json.Required.AllowNull)]
+        public int? RequestedCpuCount { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("requested_torch_num_threads", Required = Newtonsoft.Json.Required.AllowNull)]
+        public int? RequestedTorchNumThreads { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("sde_sample_freq", Required = Newtonsoft.Json.Required.Always)]
+        public int SdeSampleFreq { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("seed", Required = Newtonsoft.Json.Required.Always)]
+        public long Seed { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("stats_window_size", Required = Newtonsoft.Json.Required.Always)]
+        public int StatsWindowSize { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("target_kl", Required = Newtonsoft.Json.Required.AllowNull)]
+        public double? TargetKl { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("timesteps", Required = Newtonsoft.Json.Required.Always)]
+        public int Timesteps { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("torch_num_threads", Required = Newtonsoft.Json.Required.Always)]
+        public int TorchNumThreads { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("use_sde", Required = Newtonsoft.Json.Required.Always)]
+        public bool UseSde { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("vf_coef", Required = Newtonsoft.Json.Required.Always)]
+        public double VfCoef { get; set; }
+
+    }
+
+    /// <summary>
     /// Artifacts produced by a training run.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public partial class ResultArtifacts
     {
 
-        [Newtonsoft.Json.JsonProperty("model", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public ArtifactLocation Model { get; set; }
+        [Newtonsoft.Json.JsonProperty("onnx_model", Required = Newtonsoft.Json.Required.AllowNull)]
+        public OnnxModelArtifactLocation OnnxModel { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("onnx_model", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public ModelArtifactLocation OnnxModel { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("replay_bundle", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("replay_bundle", Required = Newtonsoft.Json.Required.AllowNull)]
         public ArtifactLocation ReplayBundle { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("sentis_model", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public ModelArtifactLocation SentisModel { get; set; }
+        [Newtonsoft.Json.JsonProperty("sentis_model", Required = Newtonsoft.Json.Required.AllowNull)]
+        public SentisModelArtifactLocation SentisModel { get; set; }
 
     }
 
     /// <summary>
-    /// EnvForge-facing training result bundle.
+    /// Client-facing training result bundle.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public partial class ResultBundle
     {
 
-        [Newtonsoft.Json.JsonProperty("artifacts", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public ResultArtifacts Artifacts { get; set; }
+        [Newtonsoft.Json.JsonProperty("artifacts", Required = Newtonsoft.Json.Required.Always)]
+        public ResultArtifacts Artifacts { get; set; } = new ResultArtifacts();
 
-        [Newtonsoft.Json.JsonProperty("compatibility", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public ResultCompatibility Compatibility { get; set; }
+        [Newtonsoft.Json.JsonProperty("compatibility", Required = Newtonsoft.Json.Required.Always)]
+        public ResultCompatibility Compatibility { get; set; } = new ResultCompatibility();
 
-        [Newtonsoft.Json.JsonProperty("error", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("error", Required = Newtonsoft.Json.Required.AllowNull)]
         public ErrorReport Error { get; set; }
 
         [Newtonsoft.Json.JsonProperty("job_id", Required = Newtonsoft.Json.Required.Always)]
@@ -718,52 +880,40 @@ namespace EmbodiedLab.Contracts
         [Newtonsoft.Json.JsonProperty("scenario_id", Required = Newtonsoft.Json.Required.Always)]
         public string ScenarioId { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("schema_version", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("schema_version", Required = Newtonsoft.Json.Required.Always)]
         [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public ResultBundleSchemaVersion SchemaVersion { get; set; } = EmbodiedLab.Contracts.ResultBundleSchemaVersion.ResultBundleV0;
+        public ResultBundleSchemaVersion SchemaVersion { get; set; }
 
         [Newtonsoft.Json.JsonProperty("status", Required = Newtonsoft.Json.Required.Always)]
         [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public ResultStatus Status { get; set; }
+        public ResultBundleStatus Status { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("summary", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("summary", Required = Newtonsoft.Json.Required.AllowNull)]
         public TrainingSummary Summary { get; set; }
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
 
     }
 
     /// <summary>
-    /// Compatibility metadata needed by EnvForge when loading a result.
+    /// Compatibility metadata needed by clients when loading a result.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public partial class ResultCompatibility
     {
 
-        [Newtonsoft.Json.JsonProperty("action_layout", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public System.Collections.Generic.ICollection<string> ActionLayout { get; set; }
+        [Newtonsoft.Json.JsonProperty("action_layout", Required = Newtonsoft.Json.Required.Always)]
+        public System.Collections.Generic.ICollection<string> ActionLayout { get; set; } = new System.Collections.ObjectModel.Collection<string>();
 
-        [Newtonsoft.Json.JsonProperty("envforge_min_version", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public string EnvforgeMinVersion { get; set; } = "0.1.0";
+        [Newtonsoft.Json.JsonProperty("observation_layout", Required = Newtonsoft.Json.Required.Always)]
+        public System.Collections.Generic.ICollection<string> ObservationLayout { get; set; } = new System.Collections.ObjectModel.Collection<string>();
 
-        [Newtonsoft.Json.JsonProperty("observation_layout", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public System.Collections.Generic.ICollection<string> ObservationLayout { get; set; }
+        [Newtonsoft.Json.JsonProperty("robot_version", Required = Newtonsoft.Json.Required.Always)]
+        public string RobotVersion { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("robot_version", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public string RobotVersion { get; set; } = "simple_robot.v1";
+        [Newtonsoft.Json.JsonProperty("scenario_schema_version", Required = Newtonsoft.Json.Required.Always)]
+        public string ScenarioSchemaVersion { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("scenario_schema_version", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public string ScenarioSchemaVersion { get; set; } = "scenario-bundle.v0";
-
-        [Newtonsoft.Json.JsonProperty("sensor_version", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public string SensorVersion { get; set; } = "basic_sensors.v0";
+        [Newtonsoft.Json.JsonProperty("sensor_version", Required = Newtonsoft.Json.Required.Always)]
+        public string SensorVersion { get; set; }
 
     }
 
@@ -774,13 +924,13 @@ namespace EmbodiedLab.Contracts
     public partial class ResultDocument
     {
 
-        [Newtonsoft.Json.JsonProperty("error", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("error", Required = Newtonsoft.Json.Required.AllowNull)]
         public string Error { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("progress", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public Progress Progress { get; set; }
+        [Newtonsoft.Json.JsonProperty("progress", Required = Newtonsoft.Json.Required.Always)]
+        public Progress Progress { get; set; } = new Progress();
 
-        [Newtonsoft.Json.JsonProperty("result_bundle", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("result_bundle", Required = Newtonsoft.Json.Required.AllowNull)]
         public ResultBundle ResultBundle { get; set; }
 
         [Newtonsoft.Json.JsonProperty("status", Required = Newtonsoft.Json.Required.Always)]
@@ -790,20 +940,8 @@ namespace EmbodiedLab.Contracts
         [Newtonsoft.Json.JsonProperty("submission_id", Required = Newtonsoft.Json.Required.Always)]
         public string SubmissionId { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("summary", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public object Summary { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("updated_at", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("updated_at", Required = Newtonsoft.Json.Required.Always)]
         public string UpdatedAt { get; set; }
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
 
     }
 
@@ -847,11 +985,19 @@ namespace EmbodiedLab.Contracts
     [Newtonsoft.Json.JsonConverter(typeof(JsonInheritanceConverter), "type")]
     [JsonInheritanceAttribute("collision", typeof(CollisionRewardComponent))]
     [JsonInheritanceAttribute("distance_delta", typeof(DistanceDeltaRewardComponent))]
+    [JsonInheritanceAttribute("maximum_absolute_forward", typeof(MaximumAbsoluteForwardRewardComponent))]
+    [JsonInheritanceAttribute("minimum_absolute_angle", typeof(MinimumAbsoluteAngleRewardComponent))]
     [JsonInheritanceAttribute("per_step", typeof(PerStepRewardComponent))]
     [JsonInheritanceAttribute("terminal_reward", typeof(TerminalRewardComponent))]
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public abstract partial class RewardComponent
     {
+
+        [Newtonsoft.Json.JsonProperty("name", Required = Newtonsoft.Json.Required.Always)]
+        public string Name { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("weight", Required = Newtonsoft.Json.Required.Always)]
+        public double Weight { get; set; }
 
     }
 
@@ -862,35 +1008,35 @@ namespace EmbodiedLab.Contracts
     public partial class RewardSpec
     {
 
-        [Newtonsoft.Json.JsonProperty("components", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public System.Collections.Generic.ICollection<RewardComponent> Components { get; set; }
+        [Newtonsoft.Json.JsonProperty("components", Required = Newtonsoft.Json.Required.Always)]
+        public System.Collections.Generic.ICollection<RewardComponent> Components { get; set; } = new System.Collections.ObjectModel.Collection<RewardComponent>();
 
     }
 
     /// <summary>
-    /// Robot descriptor for an EnvForge scenario.
+    /// Robot descriptor for a scenario bundle.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public partial class RobotSpec
     {
 
-        [Newtonsoft.Json.JsonProperty("action_space", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public ActionSpace ActionSpace { get; set; }
+        [Newtonsoft.Json.JsonProperty("action_space", Required = Newtonsoft.Json.Required.Always)]
+        public ActionSpace ActionSpace { get; set; } = new ActionSpace();
 
-        [Newtonsoft.Json.JsonProperty("radius", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public double Radius { get; set; } = 0.45D;
+        [Newtonsoft.Json.JsonProperty("radius", Required = Newtonsoft.Json.Required.Always)]
+        public double Radius { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("start_pose", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public Pose2D StartPose { get; set; }
+        [Newtonsoft.Json.JsonProperty("start_pose", Required = Newtonsoft.Json.Required.Always)]
+        public Pose2D StartPose { get; set; } = new Pose2D();
 
-        [Newtonsoft.Json.JsonProperty("type", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("type", Required = Newtonsoft.Json.Required.Always)]
         [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public RobotType Type { get; set; } = EmbodiedLab.Contracts.RobotType.SimpleRobot;
+        public RobotType Type { get; set; }
 
     }
 
     /// <summary>
-    /// Robot archetypes supported by the first EnvForge integration.
+    /// Robot archetypes supported by the current scenario contract.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public enum RobotType
@@ -909,33 +1055,33 @@ namespace EmbodiedLab.Contracts
     public partial class ScenarioBundle
     {
 
-        [Newtonsoft.Json.JsonProperty("compatibility", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public Compatibility Compatibility { get; set; }
+        [Newtonsoft.Json.JsonProperty("compatibility", Required = Newtonsoft.Json.Required.Always)]
+        public Compatibility Compatibility { get; set; } = new Compatibility();
 
-        [Newtonsoft.Json.JsonProperty("created_by", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public CreatedBy CreatedBy { get; set; }
+        [Newtonsoft.Json.JsonProperty("created_by", Required = Newtonsoft.Json.Required.Always)]
+        public CreatedBy CreatedBy { get; set; } = new CreatedBy();
 
-        [Newtonsoft.Json.JsonProperty("reward", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public RewardSpec Reward { get; set; }
+        [Newtonsoft.Json.JsonProperty("reward", Required = Newtonsoft.Json.Required.Always)]
+        public RewardSpec Reward { get; set; } = new RewardSpec();
 
-        [Newtonsoft.Json.JsonProperty("robot", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public RobotSpec Robot { get; set; }
+        [Newtonsoft.Json.JsonProperty("robot", Required = Newtonsoft.Json.Required.Always)]
+        public RobotSpec Robot { get; set; } = new RobotSpec();
 
-        [Newtonsoft.Json.JsonProperty("scenario_id", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public string ScenarioId { get; set; } = "scenario_demo_001";
+        [Newtonsoft.Json.JsonProperty("scenario_id", Required = Newtonsoft.Json.Required.Always)]
+        public string ScenarioId { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("schema_version", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("schema_version", Required = Newtonsoft.Json.Required.Always)]
         [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public ScenarioBundleSchemaVersion SchemaVersion { get; set; } = EmbodiedLab.Contracts.ScenarioBundleSchemaVersion.ScenarioBundleV0;
+        public ScenarioBundleSchemaVersion SchemaVersion { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("sensors", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public System.Collections.Generic.ICollection<SensorSpec> Sensors { get; set; }
+        [Newtonsoft.Json.JsonProperty("sensors", Required = Newtonsoft.Json.Required.Always)]
+        public System.Collections.Generic.ICollection<SensorSpec> Sensors { get; set; } = new System.Collections.ObjectModel.Collection<SensorSpec>();
 
-        [Newtonsoft.Json.JsonProperty("training", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public TrainingSpec Training { get; set; }
+        [Newtonsoft.Json.JsonProperty("training", Required = Newtonsoft.Json.Required.Always)]
+        public TrainingSpec Training { get; set; } = new TrainingSpec();
 
-        [Newtonsoft.Json.JsonProperty("world", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public WorldSpec World { get; set; }
+        [Newtonsoft.Json.JsonProperty("world", Required = Newtonsoft.Json.Required.Always)]
+        public WorldSpec World { get; set; } = new WorldSpec();
 
     }
 
@@ -968,9 +1114,55 @@ namespace EmbodiedLab.Contracts
     [Newtonsoft.Json.JsonConverter(typeof(JsonInheritanceConverter), "type")]
     [JsonInheritanceAttribute("distance_sensor", typeof(DistanceSensor))]
     [JsonInheritanceAttribute("forward_camera", typeof(ForwardCameraSensor))]
+    [JsonInheritanceAttribute("goal_vector", typeof(GoalVectorSensor))]
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public abstract partial class SensorSpec
     {
+
+        [Newtonsoft.Json.JsonProperty("id", Required = Newtonsoft.Json.Required.Always)]
+        public string Id { get; set; }
+
+    }
+
+    /// <summary>
+    /// Canonical Unity Sentis artifact metadata.
+    /// </summary>
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public partial class SentisModelArtifactLocation
+    {
+
+        [Newtonsoft.Json.JsonProperty("bucket", Required = Newtonsoft.Json.Required.Always)]
+        public string Bucket { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("format", Required = Newtonsoft.Json.Required.Always)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public SentisModelArtifactLocationFormat Format { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("inputs", Required = Newtonsoft.Json.Required.Always)]
+        public System.Collections.Generic.ICollection<ModelInput> Inputs { get; set; } = new System.Collections.ObjectModel.Collection<ModelInput>();
+
+        [Newtonsoft.Json.JsonProperty("opset_version", Required = Newtonsoft.Json.Required.Always)]
+        public SentisModelArtifactLocationOpsetVersion OpsetVersion { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("output", Required = Newtonsoft.Json.Required.Always)]
+        public ModelOutput Output { get; set; } = new ModelOutput();
+
+        [Newtonsoft.Json.JsonProperty("path", Required = Newtonsoft.Json.Required.Always)]
+        public string Path { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("sha256", Required = Newtonsoft.Json.Required.Always)]
+        public string Sha256 { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("size_bytes", Required = Newtonsoft.Json.Required.Always)]
+        public int SizeBytes { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("storage", Required = Newtonsoft.Json.Required.Always)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public ArtifactStorage Storage { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("target", Required = Newtonsoft.Json.Required.Always)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public SentisModelArtifactLocationTarget Target { get; set; }
 
     }
 
@@ -999,18 +1191,18 @@ namespace EmbodiedLab.Contracts
         [Newtonsoft.Json.JsonProperty("center", Required = Newtonsoft.Json.Required.Always)]
         public Position2D Center { get; set; } = new Position2D();
 
-        [Newtonsoft.Json.JsonProperty("height", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public double Height { get; set; } = 1D;
+        [Newtonsoft.Json.JsonProperty("height", Required = Newtonsoft.Json.Required.Always)]
+        public double Height { get; set; }
 
         [Newtonsoft.Json.JsonProperty("id", Required = Newtonsoft.Json.Required.Always)]
         public string Id { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("rotation_y_degrees", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public double RotationYDegrees { get; set; } = 0D;
+        [Newtonsoft.Json.JsonProperty("rotation_y_degrees", Required = Newtonsoft.Json.Required.Always)]
+        public double RotationYDegrees { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("shape", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("shape", Required = Newtonsoft.Json.Required.Always)]
         [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public StaticObstacleShape Shape { get; set; } = EmbodiedLab.Contracts.StaticObstacleShape.Box;
+        public StaticObstacleShape Shape { get; set; }
 
         [Newtonsoft.Json.JsonProperty("size", Required = Newtonsoft.Json.Required.Always)]
         public Size2D Size { get; set; } = new Size2D();
@@ -1027,14 +1219,14 @@ namespace EmbodiedLab.Contracts
         [Newtonsoft.Json.JsonProperty("center", Required = Newtonsoft.Json.Required.Always)]
         public Position2D Center { get; set; } = new Position2D();
 
-        [Newtonsoft.Json.JsonProperty("height", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public double Height { get; set; } = 2D;
+        [Newtonsoft.Json.JsonProperty("height", Required = Newtonsoft.Json.Required.Always)]
+        public double Height { get; set; }
 
         [Newtonsoft.Json.JsonProperty("id", Required = Newtonsoft.Json.Required.Always)]
         public string Id { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("rotation_y_degrees", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public double RotationYDegrees { get; set; } = 0D;
+        [Newtonsoft.Json.JsonProperty("rotation_y_degrees", Required = Newtonsoft.Json.Required.Always)]
+        public double RotationYDegrees { get; set; }
 
         [Newtonsoft.Json.JsonProperty("size", Required = Newtonsoft.Json.Required.Always)]
         public Size2D Size { get; set; } = new Size2D();
@@ -1067,16 +1259,51 @@ namespace EmbodiedLab.Contracts
     public partial class TerminalRewardComponent : RewardComponent
     {
 
-        [Newtonsoft.Json.JsonProperty("name", Required = Newtonsoft.Json.Required.Always)]
-        public string Name { get; set; }
+    }
 
-        [Newtonsoft.Json.JsonProperty("weight", Required = Newtonsoft.Json.Required.Always)]
-        public double Weight { get; set; }
+    /// <summary>
+    /// One stochastic training Replay chunk.
+    /// </summary>
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public partial class TrainReplayBundleChunk : ReplayBundleChunk
+    {
+
+        [Newtonsoft.Json.JsonProperty("avg_reward", Required = Newtonsoft.Json.Required.AllowNull)]
+        public object AvgReward { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("avg_steps", Required = Newtonsoft.Json.Required.AllowNull)]
+        public object AvgSteps { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("end_step", Required = Newtonsoft.Json.Required.Always)]
+        public int EndStep { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("episode_count", Required = Newtonsoft.Json.Required.AllowNull)]
+        public object EpisodeCount { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("format", Required = Newtonsoft.Json.Required.Always)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public TrainReplayBundleChunkFormat Format { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("path", Required = Newtonsoft.Json.Required.Always)]
+        public string Path { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("policy_mode", Required = Newtonsoft.Json.Required.Always)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public TrainReplayBundleChunkPolicyMode PolicyMode { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("start_step", Required = Newtonsoft.Json.Required.Always)]
+        public int StartStep { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("step_count", Required = Newtonsoft.Json.Required.Always)]
+        public int StepCount { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("success_rate", Required = Newtonsoft.Json.Required.AllowNull)]
+        public object SuccessRate { get; set; }
 
     }
 
     /// <summary>
-    /// Supported training algorithms for EnvForge scenarios.
+    /// Supported training algorithms for scenario bundles.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public enum TrainingAlgorithm
@@ -1089,70 +1316,110 @@ namespace EmbodiedLab.Contracts
     }
 
     /// <summary>
-    /// Response returned after accepting a training request.
+    /// Training devices supported by the current Cloud Run runtime.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
-    public partial class TrainingResponse
+    public enum TrainingDevice
     {
 
-        [Newtonsoft.Json.JsonProperty("status", Required = Newtonsoft.Json.Required.Always)]
-        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public TrainingResponseStatus Status { get; set; }
+        [System.Runtime.Serialization.EnumMember(Value = @"cpu")]
+        Cpu = 0,
 
-        [Newtonsoft.Json.JsonProperty("submission_id", Required = Newtonsoft.Json.Required.Always)]
-        public string SubmissionId { get; set; }
 
     }
 
     /// <summary>
-    /// Training request parameters for EnvForge scenario bundles.
+    /// Training request parameters for scenario bundles.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public partial class TrainingSpec
     {
 
-        [Newtonsoft.Json.JsonProperty("algorithm", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("algorithm", Required = Newtonsoft.Json.Required.Always)]
         [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public TrainingAlgorithm Algorithm { get; set; } = EmbodiedLab.Contracts.TrainingAlgorithm.Ppo;
+        public TrainingAlgorithm Algorithm { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("batch_size", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public int BatchSize { get; set; } = 32;
+        [Newtonsoft.Json.JsonProperty("batch_size", Required = Newtonsoft.Json.Required.Always)]
+        public int BatchSize { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("cpu_count", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("clip_range", Required = Newtonsoft.Json.Required.Always)]
+        public double ClipRange { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("clip_range_vf", Required = Newtonsoft.Json.Required.AllowNull)]
+        public double? ClipRangeVf { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("cpu_count", Required = Newtonsoft.Json.Required.AllowNull)]
         public int? CpuCount { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("ent_coef", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public double EntCoef { get; set; } = 0D;
+        [Newtonsoft.Json.JsonProperty("device", Required = Newtonsoft.Json.Required.Always)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public TrainingDevice Device { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("eval_episodes", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public int EvalEpisodes { get; set; } = 20;
+        [Newtonsoft.Json.JsonProperty("ent_coef", Required = Newtonsoft.Json.Required.Always)]
+        public double EntCoef { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("gamma", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public double Gamma { get; set; } = 0.99D;
+        [Newtonsoft.Json.JsonProperty("eval_episodes", Required = Newtonsoft.Json.Required.Always)]
+        public int EvalEpisodes { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("learning_rate", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public double LearningRate { get; set; } = 0.0003D;
+        [Newtonsoft.Json.JsonProperty("gae_lambda", Required = Newtonsoft.Json.Required.Always)]
+        public double GaeLambda { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("max_episode_steps", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public int MaxEpisodeSteps { get; set; } = 512;
+        [Newtonsoft.Json.JsonProperty("gamma", Required = Newtonsoft.Json.Required.Always)]
+        public double Gamma { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("n_envs", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public int NEnvs { get; set; } = 1;
+        [Newtonsoft.Json.JsonProperty("learning_rate", Required = Newtonsoft.Json.Required.Always)]
+        public double LearningRate { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("n_epochs", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public int NEpochs { get; set; } = 3;
+        [Newtonsoft.Json.JsonProperty("max_episode_steps", Required = Newtonsoft.Json.Required.Always)]
+        public int MaxEpisodeSteps { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("n_steps", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public int NSteps { get; set; } = 32;
+        [Newtonsoft.Json.JsonProperty("max_grad_norm", Required = Newtonsoft.Json.Required.Always)]
+        public double MaxGradNorm { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("seed", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public int Seed { get; set; } = 10;
+        [Newtonsoft.Json.JsonProperty("n_envs", Required = Newtonsoft.Json.Required.Always)]
+        public int NEnvs { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("timesteps", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public int Timesteps { get; set; } = 5000;
+        [Newtonsoft.Json.JsonProperty("n_epochs", Required = Newtonsoft.Json.Required.Always)]
+        public int NEpochs { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("torch_num_threads", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("n_steps", Required = Newtonsoft.Json.Required.Always)]
+        public int NSteps { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("normalize_advantage", Required = Newtonsoft.Json.Required.Always)]
+        public bool NormalizeAdvantage { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("randomize_start", Required = Newtonsoft.Json.Required.Always)]
+        public bool RandomizeStart { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("replay_eval_interval_steps", Required = Newtonsoft.Json.Required.Always)]
+        public int ReplayEvalIntervalSteps { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("replay_train_chunk_steps", Required = Newtonsoft.Json.Required.Always)]
+        public int ReplayTrainChunkSteps { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("sde_sample_freq", Required = Newtonsoft.Json.Required.Always)]
+        public int SdeSampleFreq { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("seed", Required = Newtonsoft.Json.Required.Always)]
+        public long Seed { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("stats_window_size", Required = Newtonsoft.Json.Required.Always)]
+        public int StatsWindowSize { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("target_kl", Required = Newtonsoft.Json.Required.AllowNull)]
+        public double? TargetKl { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("timesteps", Required = Newtonsoft.Json.Required.Always)]
+        public int Timesteps { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("torch_num_threads", Required = Newtonsoft.Json.Required.AllowNull)]
         public int? TorchNumThreads { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("use_sde", Required = Newtonsoft.Json.Required.Always)]
+        public bool UseSde { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("vf_coef", Required = Newtonsoft.Json.Required.Always)]
+        public double VfCoef { get; set; }
 
     }
 
@@ -1163,45 +1430,42 @@ namespace EmbodiedLab.Contracts
     public partial class TrainingSummary
     {
 
-        [Newtonsoft.Json.JsonProperty("average_episode_reward", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("average_episode_reward", Required = Newtonsoft.Json.Required.AllowNull)]
         public double? AverageEpisodeReward { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("average_episode_steps", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("average_episode_steps", Required = Newtonsoft.Json.Required.AllowNull)]
         public double? AverageEpisodeSteps { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("success_rate", Required = Newtonsoft.Json.Required.Default, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("configuration", Required = Newtonsoft.Json.Required.Always)]
+        public ResolvedTrainingConfig Configuration { get; set; } = new ResolvedTrainingConfig();
+
+        [Newtonsoft.Json.JsonProperty("success_rate", Required = Newtonsoft.Json.Required.AllowNull)]
         public double? SuccessRate { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("training_seed", Required = Newtonsoft.Json.Required.Always)]
-        public int TrainingSeed { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("training_timesteps", Required = Newtonsoft.Json.Required.Always)]
-        public int TrainingTimesteps { get; set; }
 
     }
 
     /// <summary>
-    /// Static world geometry for the first EnvForge contract.
+    /// Static world geometry for the current scenario contract.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public partial class WorldSpec
     {
 
-        [Newtonsoft.Json.JsonProperty("bounds", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public Bounds2D Bounds { get; set; }
+        [Newtonsoft.Json.JsonProperty("bounds", Required = Newtonsoft.Json.Required.Always)]
+        public Bounds2D Bounds { get; set; } = new Bounds2D();
 
-        [Newtonsoft.Json.JsonProperty("coordinate_system", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        [Newtonsoft.Json.JsonProperty("coordinate_system", Required = Newtonsoft.Json.Required.Always)]
         [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public CoordinateSystem CoordinateSystem { get; set; } = EmbodiedLab.Contracts.CoordinateSystem.EnvforgeXzMeters;
+        public CoordinateSystem CoordinateSystem { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("goal", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public GoalSpec Goal { get; set; }
+        [Newtonsoft.Json.JsonProperty("goal", Required = Newtonsoft.Json.Required.Always)]
+        public GoalSpec Goal { get; set; } = new GoalSpec();
 
-        [Newtonsoft.Json.JsonProperty("static_obstacles", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public System.Collections.Generic.ICollection<StaticObstacle> StaticObstacles { get; set; }
+        [Newtonsoft.Json.JsonProperty("static_obstacles", Required = Newtonsoft.Json.Required.Always)]
+        public System.Collections.Generic.ICollection<StaticObstacle> StaticObstacles { get; set; } = new System.Collections.ObjectModel.Collection<StaticObstacle>();
 
-        [Newtonsoft.Json.JsonProperty("static_walls", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public System.Collections.Generic.ICollection<StaticWall> StaticWalls { get; set; }
+        [Newtonsoft.Json.JsonProperty("static_walls", Required = Newtonsoft.Json.Required.Always)]
+        public System.Collections.Generic.ICollection<StaticWall> StaticWalls { get; set; } = new System.Collections.ObjectModel.Collection<StaticWall>();
 
     }
 
@@ -1220,7 +1484,17 @@ namespace EmbodiedLab.Contracts
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
-    public enum ReplayBundleChunkFormat
+    public enum ArtifactLocationFormat
+    {
+
+        [System.Runtime.Serialization.EnumMember(Value = @"json")]
+        Json = 0,
+
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public enum EvalReplayBundleChunkFormat
     {
 
         [System.Runtime.Serialization.EnumMember(Value = @"jsonl.gz")]
@@ -1230,29 +1504,54 @@ namespace EmbodiedLab.Contracts
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
-    public enum ReplayBundleChunkPhase
+    public enum EvalReplayBundleChunkPolicyMode
     {
 
-        [System.Runtime.Serialization.EnumMember(Value = @"train")]
-        Train = 0,
-
-
-        [System.Runtime.Serialization.EnumMember(Value = @"eval")]
-        Eval = 1,
+        [System.Runtime.Serialization.EnumMember(Value = @"deterministic")]
+        Deterministic = 0,
 
 
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
-    public enum ReplayBundleChunkPolicyMode
+    public enum Values
     {
 
-        [System.Runtime.Serialization.EnumMember(Value = @"stochastic")]
-        Stochastic = 0,
+        [System.Runtime.Serialization.EnumMember(Value = @"goal_angle_degrees")]
+        GoalAngleDegrees = 0,
 
 
-        [System.Runtime.Serialization.EnumMember(Value = @"deterministic")]
-        Deterministic = 1,
+        [System.Runtime.Serialization.EnumMember(Value = @"goal_distance_meters")]
+        GoalDistanceMeters = 1,
+
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public enum OnnxModelArtifactLocationFormat
+    {
+
+        [System.Runtime.Serialization.EnumMember(Value = @"onnx")]
+        Onnx = 0,
+
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public enum OnnxModelArtifactLocationOpsetVersion
+    {
+
+        _17 = 17,
+
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public enum OnnxModelArtifactLocationTarget
+    {
+
+        [System.Runtime.Serialization.EnumMember(Value = @"onnx-runtime")]
+        OnnxRuntime = 0,
 
 
     }
@@ -1268,11 +1567,69 @@ namespace EmbodiedLab.Contracts
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public enum ReplayLogStepPhase
+    {
+
+        [System.Runtime.Serialization.EnumMember(Value = @"train")]
+        Train = 0,
+
+
+        [System.Runtime.Serialization.EnumMember(Value = @"eval")]
+        Eval = 1,
+
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public enum ReplayLogStepPolicyMode
+    {
+
+        [System.Runtime.Serialization.EnumMember(Value = @"stochastic")]
+        Stochastic = 0,
+
+
+        [System.Runtime.Serialization.EnumMember(Value = @"deterministic")]
+        Deterministic = 1,
+
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public enum ReplayLogStepSchemaVersion
     {
 
         [System.Runtime.Serialization.EnumMember(Value = @"replay-log.v0")]
         ReplayLogV0 = 0,
+
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public enum ResolvedTrainingConfigAlgorithm
+    {
+
+        [System.Runtime.Serialization.EnumMember(Value = @"ppo")]
+        Ppo = 0,
+
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public enum ResolvedTrainingConfigDevice
+    {
+
+        [System.Runtime.Serialization.EnumMember(Value = @"cpu")]
+        Cpu = 0,
+
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public enum ResolvedTrainingConfigLibrary
+    {
+
+        [System.Runtime.Serialization.EnumMember(Value = @"stable-baselines3")]
+        StableBaselines3 = 0,
 
 
     }
@@ -1288,11 +1645,54 @@ namespace EmbodiedLab.Contracts
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public enum ResultBundleStatus
+    {
+
+        [System.Runtime.Serialization.EnumMember(Value = @"completed")]
+        Completed = 0,
+
+
+        [System.Runtime.Serialization.EnumMember(Value = @"failed")]
+        Failed = 1,
+
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
     public enum ScenarioBundleSchemaVersion
     {
 
         [System.Runtime.Serialization.EnumMember(Value = @"scenario-bundle.v0")]
         ScenarioBundleV0 = 0,
+
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public enum SentisModelArtifactLocationFormat
+    {
+
+        [System.Runtime.Serialization.EnumMember(Value = @"onnx")]
+        Onnx = 0,
+
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public enum SentisModelArtifactLocationOpsetVersion
+    {
+
+        _15 = 15,
+
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public enum SentisModelArtifactLocationTarget
+    {
+
+        [System.Runtime.Serialization.EnumMember(Value = @"unity-sentis")]
+        UnitySentis = 0,
 
 
     }
@@ -1318,11 +1718,21 @@ namespace EmbodiedLab.Contracts
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
-    public enum TrainingResponseStatus
+    public enum TrainReplayBundleChunkFormat
     {
 
-        [System.Runtime.Serialization.EnumMember(Value = @"accepted")]
-        Accepted = 0,
+        [System.Runtime.Serialization.EnumMember(Value = @"jsonl.gz")]
+        JsonlGz = 0,
+
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
+    public enum TrainReplayBundleChunkPolicyMode
+    {
+
+        [System.Runtime.Serialization.EnumMember(Value = @"stochastic")]
+        Stochastic = 0,
 
 
     }

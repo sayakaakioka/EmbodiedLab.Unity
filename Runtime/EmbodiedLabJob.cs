@@ -27,11 +27,13 @@ namespace EmbodiedLab.Unity
         internal EmbodiedLabJob(
             EmbodiedLabTransport transport,
             string submissionId,
+            string scenarioId,
             string? cancelToken,
             SynchronizationContext? synchronizationContext)
         {
             this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
             SubmissionId = RequireValue(submissionId, nameof(submissionId));
+            ScenarioId = RequireValue(scenarioId, nameof(scenarioId));
             CancelToken = string.IsNullOrWhiteSpace(cancelToken) ? null : cancelToken;
             this.synchronizationContext = synchronizationContext;
         }
@@ -39,6 +41,8 @@ namespace EmbodiedLab.Unity
         public event Action<ResultDocument>? ResultUpdated;
 
         public string SubmissionId { get; }
+
+        public string ScenarioId { get; }
 
         public string? CancelToken { get; }
 
@@ -87,10 +91,6 @@ namespace EmbodiedLab.Unity
             {
                 return await SubmitAsync(transport, scenario, context, cancellationToken);
             }
-            catch (EmbodiedLabTrainingStartException)
-            {
-                throw;
-            }
             catch
             {
                 transport.Dispose();
@@ -126,33 +126,16 @@ namespace EmbodiedLab.Unity
             var job = new EmbodiedLabJob(
                 transport,
                 submissionId,
+                RequireValue(scenario.ScenarioId, nameof(scenario.ScenarioId)),
                 cancelToken,
                 synchronizationContext);
-            try
-            {
-                TrainingResponse training = await transport.StartTrainingAsync(
-                    submissionId,
-                    cancellationToken);
-                if (!string.Equals(
-                    training.SubmissionId,
-                    submissionId,
-                    StringComparison.Ordinal))
-                {
-                    throw new InvalidOperationException(
-                        "EmbodiedLab accepted training for a different submission.");
-                }
-            }
-            catch (Exception exception)
-            {
-                throw new EmbodiedLabTrainingStartException(job, exception);
-            }
-
             return job;
         }
 
         public static EmbodiedLabJob Restore(
             EmbodiedLabEndpoints endpoints,
             string submissionId,
+            string scenarioId,
             string? cancelToken = null)
         {
             if (endpoints == null)
@@ -168,6 +151,7 @@ namespace EmbodiedLab.Unity
                 return new EmbodiedLabJob(
                     transport,
                     submissionId,
+                    scenarioId,
                     cancelToken,
                     SynchronizationContext.Current);
             }
@@ -257,12 +241,28 @@ namespace EmbodiedLab.Unity
             ArtifactLocation replayBundle = GetArtifacts().ReplayBundle ??
                 throw new InvalidOperationException(
                     "The latest result does not contain a replay bundle artifact.");
+            if (replayBundle.Format != ArtifactLocationFormat.Json)
+            {
+                throw new InvalidDataException(
+                    "The replay bundle artifact must declare the JSON format.");
+            }
+
             using CancellationTokenSource operationCancellation =
                 CreateOperationCancellationThreadSafe(cancellationToken);
             await transport.DownloadArtifactAsync(
-                replayBundle,
+                new ArtifactDownloadRequest(
+                    replayBundle.Storage,
+                    replayBundle.Bucket,
+                    replayBundle.Path,
+                    "json",
+                    replayBundle.SizeBytes,
+                    replayBundle.Sha256),
                 destinationPath,
-                operationCancellation.Token);
+                operationCancellation.Token,
+                (temporaryPath, _) => EmbodiedLabReplay.ReadManifest(
+                    temporaryPath,
+                    SubmissionId,
+                    ScenarioId));
         }
 
         public async Task DownloadReplayChunkAsync(
@@ -278,7 +278,7 @@ namespace EmbodiedLab.Unity
             ArtifactLocation replayManifest = GetArtifacts().ReplayBundle ??
                 throw new InvalidOperationException(
                     "The latest result does not contain a replay bundle artifact.");
-            ArtifactLocation chunkArtifact = CreateReplayChunkArtifact(
+            ArtifactDownloadRequest chunkArtifact = CreateReplayChunkArtifact(
                 replayManifest,
                 chunk);
             using CancellationTokenSource operationCancellation =
@@ -286,7 +286,13 @@ namespace EmbodiedLab.Unity
             await transport.DownloadArtifactAsync(
                 chunkArtifact,
                 destinationPath,
-                operationCancellation.Token);
+                operationCancellation.Token,
+                (temporaryPath, validationCancellation) => EmbodiedLabReplay.ReadChunk(
+                    temporaryPath,
+                    chunk,
+                    SubmissionId,
+                    ScenarioId,
+                    validationCancellation));
         }
 
         public async Task DownloadModelAsync(
@@ -294,10 +300,10 @@ namespace EmbodiedLab.Unity
             CancellationToken cancellationToken = default)
         {
             ResultArtifacts artifacts = GetArtifacts();
-            ModelArtifactLocation model = artifacts.OnnxModel ??
+            OnnxModelArtifactLocation model = artifacts.OnnxModel ??
                 throw new InvalidOperationException(
                     "The latest result does not contain an ONNX model artifact.");
-            if (model.Format != ArtifactFormat.Onnx)
+            if (model.Format != OnnxModelArtifactLocationFormat.Onnx)
             {
                 throw new InvalidDataException(
                     "The ONNX model artifact must declare the ONNX format.");
@@ -306,13 +312,13 @@ namespace EmbodiedLab.Unity
             using CancellationTokenSource operationCancellation =
                 CreateOperationCancellationThreadSafe(cancellationToken);
             await transport.DownloadArtifactAsync(
-                new ArtifactLocation
-                {
-                    Storage = model.Storage,
-                    Bucket = model.Bucket,
-                    Path = model.Path,
-                    Format = model.Format,
-                },
+                new ArtifactDownloadRequest(
+                    model.Storage,
+                    model.Bucket,
+                    model.Path,
+                    "onnx",
+                    model.SizeBytes,
+                    model.Sha256),
                 destinationPath,
                 operationCancellation.Token);
         }
@@ -351,7 +357,7 @@ namespace EmbodiedLab.Unity
                 status == ResultStatus.Cancelled;
         }
 
-        private static ArtifactLocation CreateReplayChunkArtifact(
+        private static ArtifactDownloadRequest CreateReplayChunkArtifact(
             ArtifactLocation replayManifest,
             ReplayBundleChunk chunk)
         {
@@ -359,7 +365,9 @@ namespace EmbodiedLab.Unity
             string manifestPath = RequireValue(
                 replayManifest.Path,
                 nameof(replayManifest.Path));
-            string chunkPath = RequireValue(chunk.Path, nameof(chunk.Path));
+            string chunkPath = RequireValue(
+                EmbodiedLabReplay.GetChunkPath(chunk),
+                nameof(chunk));
             if (chunkPath.StartsWith("/", StringComparison.Ordinal) ||
                 chunkPath.Contains("\\") ||
                 chunkPath.Contains("?") ||
@@ -385,13 +393,13 @@ namespace EmbodiedLab.Unity
             string replayDirectory = manifestFilenameStart < 0
                 ? string.Empty
                 : manifestPath.Substring(0, manifestFilenameStart + 1);
-            return new ArtifactLocation
-            {
-                Bucket = replayManifest.Bucket,
-                Format = ArtifactFormat.JsonlGz,
-                Path = replayDirectory + chunkPath,
-                Storage = replayManifest.Storage,
-            };
+            return new ArtifactDownloadRequest(
+                replayManifest.Storage,
+                replayManifest.Bucket,
+                replayDirectory + chunkPath,
+                "jsonl.gz",
+                chunk.SizeBytes,
+                chunk.Sha256);
         }
 
         private ResultArtifacts GetArtifacts()
@@ -431,6 +439,16 @@ namespace EmbodiedLab.Unity
             {
                 throw new InvalidOperationException(
                     "EmbodiedLab returned a result for a different submission.");
+            }
+
+            if (result.ResultBundle != null &&
+                !string.Equals(
+                    result.ResultBundle.ScenarioId,
+                    ScenarioId,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "EmbodiedLab returned a result for a different Scenario.");
             }
 
             lock (gate)

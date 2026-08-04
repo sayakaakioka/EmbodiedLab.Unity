@@ -89,8 +89,22 @@ def main() -> int:
     policy = args.policy.expanduser().resolve()
     output = args.output_directory.expanduser().resolve()
     scenario = REPOSITORY_ROOT / "Samples~" / "Quickstart" / "NavigationScenario.json"
-    if not unity_editor.is_file() or not policy.is_file() or not scenario.is_file():
-        print("Unity editor, policy, or scenario input is missing.", file=sys.stderr)
+    result_document = (
+        REPOSITORY_ROOT
+        / "Tests~"
+        / "Fixtures"
+        / "navigation_completed_result_document.json"
+    )
+    if (
+        not unity_editor.is_file()
+        or not policy.is_file()
+        or not scenario.is_file()
+        or not result_document.is_file()
+    ):
+        print(
+            "Unity editor, policy, Scenario, or Result input is missing.",
+            file=sys.stderr,
+        )
         return 2
 
     remove_path(output)
@@ -137,6 +151,8 @@ def main() -> int:
             mounted_windows_path(policy),
             "--embodiedlab-scenario",
             mounted_windows_path(scenario),
+            "--embodiedlab-result",
+            mounted_windows_path(result_document),
             "--embodiedlab-smoke-result",
             mounted_windows_path(result),
         ]

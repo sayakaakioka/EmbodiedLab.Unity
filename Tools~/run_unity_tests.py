@@ -32,6 +32,18 @@ REQUIRED_TEST_NAMES = frozenset(
         "EmbodiedLab.Unity.Tests.ContractRoundTripTests.ReplayReadersEnforceResourceLimits",
         "EmbodiedLab.Unity.Tests.EmbodiedLabJobTests.RestorePreservesCancellationCapability",
         (
+            "EmbodiedLab.Unity.Tests.TransportArtifactTests."
+            "CancelledDownloadPreservesExistingDestination"
+        ),
+        (
+            "EmbodiedLab.Unity.Tests.TransportArtifactTests."
+            "ConcurrentDownloadsCommitOnlyVerifiedArtifacts"
+        ),
+        (
+            "EmbodiedLab.Unity.Tests.TransportArtifactTests."
+            "SuccessfulDownloadReplacesExistingDestination"
+        ),
+        (
             "EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests."
             "QuickstartWorldBuilderTests.CanonicalScenarioBuildsExpectedWorld"
         ),
@@ -180,14 +192,21 @@ def stage_quickstart_sample(
     staged_sample.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(sample_source, staged_sample)
     shutil.copytree(imported_tests_source, staged_tests)
+    staged_fixtures = project_path / STAGING_ROOT_RELATIVE_PATH / "Fixtures"
+    staged_fixtures.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(
+        repository_root
+        / "Tests~"
+        / "Fixtures"
+        / "navigation_completed_result_document.json",
+        staged_fixtures / "navigation_completed_result_document.json",
+    )
     if policy_path is not None:
         resolved_policy = policy_path.expanduser().resolve()
         if not resolved_policy.is_file():
             raise FileNotFoundError(f"ONNX policy not found: {resolved_policy}")
 
-        staged_policy = (
-            project_path / STAGING_ROOT_RELATIVE_PATH / "Fixtures" / "policy.onnx"
-        )
+        staged_policy = staged_fixtures / "policy.onnx"
         staged_policy.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(resolved_policy, staged_policy)
     return staged_sample

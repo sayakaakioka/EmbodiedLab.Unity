@@ -64,22 +64,13 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             StopCurrentJob();
             EmbodiedLabJob? submittedJob = null;
             int generation = -1;
-            bool trainingStartConfirmed = true;
             try
             {
-                ReportActivity("Submitting the scenario and starting training...");
-                try
-                {
-                    submittedJob = await EmbodiedLabJob.SubmitAsync(
-                        endpoints,
-                        scenario,
-                        lifetimeToken);
-                }
-                catch (EmbodiedLabTrainingStartException exception)
-                {
-                    submittedJob = exception.Job;
-                    trainingStartConfirmed = false;
-                }
+                ReportActivity("Submitting the scenario for server-owned training...");
+                submittedJob = await EmbodiedLabJob.SubmitAsync(
+                    endpoints,
+                    scenario,
+                    lifetimeToken);
 
                 if (disposed)
                 {
@@ -94,10 +85,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                     StartMonitor(lifetimeToken);
                 generation = operationGeneration;
                 operation = Operation.None;
-                ReportActivity(
-                    trainingStartConfirmed
-                        ? "Monitoring result updates..."
-                        : "Training start was not confirmed. Monitoring and cloud cancellation remain available.");
+                ReportActivity("Monitoring result updates...");
 
                 ResultDocument result = await activeJob.WaitForCompletionAsync(token);
                 ResultUpdated?.Invoke(result);
@@ -112,7 +100,11 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             }
             catch (Exception exception)
             {
-                Failed?.Invoke("Training request failed", exception);
+                Failed?.Invoke(
+                    generation >= 0
+                        ? "Result monitoring failed"
+                        : "Submission failed",
+                    exception);
             }
             finally
             {

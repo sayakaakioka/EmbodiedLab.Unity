@@ -1,17 +1,15 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.IO;
+using EmbodiedLab.Contracts;
 using UnityEngine;
 
 namespace EmbodiedLab.Unity.Samples.Quickstart
 {
     internal sealed class QuickstartInferenceRunner : IDisposable
     {
-        internal const float DecisionSeconds = 0.1f;
-        internal const float ForwardMetersPerDecision = 0.2f;
-        internal const float TurnDegreesPerDecision = 15f;
-
         private readonly Transform robot;
         private readonly CapsuleCollider robotCollider;
         private readonly Transform goal;
@@ -19,13 +17,15 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private readonly Vector3 startPosition;
         private readonly Quaternion startRotation;
         private readonly float goalRadius;
-        private readonly float[] imageObservation =
-            new float[QuickstartOnnxContract.ImageValueCount];
-        private readonly float[] numericObservation =
-            new float[QuickstartOnnxContract.NumericValueCount];
+        private readonly float decisionSeconds;
+        private readonly float forwardMetersPerDecision;
+        private readonly float turnDegreesPerDecision;
+        private readonly ScenarioBundle scenario;
 
         private QuickstartOnnxPolicy? policy;
         private QuickstartSemanticCamera? semanticCamera;
+        private float[]? imageObservation;
+        private float[]? numericObservation;
         private float elapsedSeconds;
 
         internal QuickstartInferenceRunner(QuickstartWorldBuilder world)
@@ -47,7 +47,23 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             startPosition = world.RobotStartPosition;
             startRotation = world.RobotStartRotation;
             goalRadius = world.GoalRadius;
+            scenario = world.Scenario ?? throw new InvalidOperationException(
+                "Scenario is unavailable.");
+            ActionSpace actionSpace = scenario.Robot?.ActionSpace ??
+                throw new InvalidOperationException(
+                    "Scenario robot action space is unavailable.");
+            decisionSeconds = RequirePositiveFinite(
+                actionSpace.StepDurationSeconds,
+                "step_duration_seconds");
+            forwardMetersPerDecision = RequirePositiveFinite(
+                actionSpace.ForwardStepMeters,
+                "forward_step_meters");
+            turnDegreesPerDecision = RequirePositiveFinite(
+                actionSpace.TurnDegreesPerStep,
+                "turn_degrees_per_step");
         }
+
+        internal float DecisionSeconds => decisionSeconds;
 
         internal bool IsRunning { get; private set; }
 
@@ -57,7 +73,9 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         internal string ActionStatus { get; private set; } = "-";
 
-        internal void Start(string modelPath)
+        internal void Start(
+            string modelPath,
+            OnnxModelArtifactLocation modelContract)
         {
             StopInternal("Inference: off", resetRobot: true);
             if (string.IsNullOrWhiteSpace(modelPath) || !File.Exists(modelPath))
@@ -68,8 +86,16 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
             try
             {
-                policy = new QuickstartOnnxPolicy(modelPath);
-                semanticCamera = new QuickstartSemanticCamera(forwardCamera);
+                policy = new QuickstartOnnxPolicy(
+                    modelPath,
+                    scenario,
+                    modelContract);
+                QuickstartOnnxContract contract = policy.Contract;
+                imageObservation = new float[contract.ImageValueCount];
+                numericObservation = new float[contract.NumericValueCount];
+                semanticCamera = new QuickstartSemanticCamera(
+                    forwardCamera,
+                    contract);
                 elapsedSeconds = 0f;
                 IsRunning = true;
                 Status = $"Inference: running {Path.GetFileName(modelPath)}";
@@ -93,12 +119,12 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             }
 
             elapsedSeconds += Math.Max(0f, deltaSeconds);
-            if (elapsedSeconds < DecisionSeconds)
+            if (elapsedSeconds < decisionSeconds)
             {
                 return;
             }
 
-            elapsedSeconds %= DecisionSeconds;
+            elapsedSeconds %= decisionSeconds;
             Step();
         }
 
@@ -125,19 +151,29 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                     throw new ObjectDisposedException(nameof(QuickstartSemanticCamera));
                 QuickstartOnnxPolicy activePolicy = policy ??
                     throw new ObjectDisposedException(nameof(QuickstartOnnxPolicy));
-                string imageSummary = activeCamera.Capture(imageObservation);
+                QuickstartOnnxContract contract = activePolicy.Contract;
+                float[] activeImageObservation = imageObservation ??
+                    throw new InvalidOperationException(
+                        "Image observation buffer is unavailable.");
+                float[] activeNumericObservation = numericObservation ??
+                    throw new InvalidOperationException(
+                        "Numeric observation buffer is unavailable.");
+                string imageSummary = activeCamera.Capture(activeImageObservation);
                 QuickstartInferenceMath.WriteNumericObservation(
                     robot.position,
                     robot.rotation.eulerAngles.y,
                     goal.position,
-                    numericObservation);
+                    contract.NumericValues,
+                    activeNumericObservation);
                 ObservationStatus =
-                    $"angle={numericObservation[0]:0.00} deg | " +
-                    $"distance={numericObservation[1]:0.00} m | {imageSummary}";
+                    FormatNumericObservation(contract, activeNumericObservation) +
+                    $" | {imageSummary}";
 
                 QuickstartAppliedAction action =
                     QuickstartInferenceMath.ApplyActionContract(
-                        activePolicy.Run(imageObservation, numericObservation));
+                        activePolicy.Run(
+                            activeImageObservation,
+                            activeNumericObservation));
                 ActionStatus = action.FormatSummary();
                 ApplyMotion(action);
                 if (!IsRunning)
@@ -162,12 +198,12 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         {
             robot.Rotate(
                 0f,
-                action.Turn * TurnDegreesPerDecision,
+                action.Turn * turnDegreesPerDecision,
                 0f,
                 Space.World);
             Physics.SyncTransforms();
 
-            float distance = action.Forward * ForwardMetersPerDecision;
+            float distance = action.Forward * forwardMetersPerDecision;
             if (distance > 0f && WouldHitBlockedGeometry(robot.forward, distance, out string hit))
             {
                 StopInternal(
@@ -222,6 +258,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             semanticCamera = null;
             policy?.Dispose();
             policy = null;
+            imageObservation = null;
+            numericObservation = null;
             if (resetRobot && robot != null)
             {
                 robot.SetPositionAndRotation(startPosition, startRotation);
@@ -229,6 +267,37 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             }
 
             Status = status;
+        }
+
+        private static float RequirePositiveFinite(double value, string fieldName)
+        {
+            float converted = (float)value;
+            if (converted <= 0f || float.IsNaN(converted) || float.IsInfinity(converted))
+            {
+                throw new InvalidOperationException(
+                    $"Scenario {fieldName} must be a positive finite value.");
+            }
+
+            return converted;
+        }
+
+        private static string FormatNumericObservation(
+            QuickstartOnnxContract contract,
+            IReadOnlyList<float> values)
+        {
+            var parts = new string[contract.NumericValues.Count];
+            for (int index = 0; index < contract.NumericValues.Count; index++)
+            {
+                parts[index] = contract.NumericValues[index] switch
+                {
+                    Values.GoalAngleDegrees => $"angle={values[index]:0.00} deg",
+                    Values.GoalDistanceMeters => $"distance={values[index]:0.00} m",
+                    _ => throw new InvalidDataException(
+                        $"Unsupported goal-vector value '{contract.NumericValues[index]}'."),
+                };
+            }
+
+            return string.Join(" | ", parts);
         }
     }
 }

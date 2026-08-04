@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using EmbodiedLab.Contracts;
 using EmbodiedLab.Unity;
+using EmbodiedLab.Unity.Internal;
 using EmbodiedLab.Unity.Tests;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -24,20 +25,18 @@ RoundTrip<ReplayBundleManifest>(
 AssertTypes(
     scenario.Sensors,
     typeof(ForwardCameraSensor),
-    typeof(DistanceSensor));
+    typeof(GoalVectorSensor));
 AssertTypes(
     scenario.Reward.Components,
     typeof(TerminalRewardComponent),
     typeof(DistanceDeltaRewardComponent),
     typeof(CollisionRewardComponent),
     typeof(PerStepRewardComponent),
-    typeof(PerStepRewardComponent),
-    typeof(PerStepRewardComponent),
-    typeof(PerStepRewardComponent),
-    typeof(PerStepRewardComponent));
+    typeof(MinimumAbsoluteAngleRewardComponent),
+    typeof(MinimumAbsoluteAngleRewardComponent),
+    typeof(MaximumAbsoluteForwardRewardComponent));
 _ = nameof(WorldSpec.StaticObstacles);
 _ = nameof(ScenarioBundle.SchemaVersion);
-_ = ArtifactFormat.JsonlGz;
 AssertSchemaDefaultValidation();
 
 var resultDocument = JObject.Parse(ReadFixture("navigation_completed_result_document.json"));
@@ -65,9 +64,6 @@ RoundTripJson<ResultBundle>(
 RoundTripJson<SubmissionResponse>(
     """{"cancel_token":"cancel-token-1","submission_id":"submission-1","status":"accepted"}""",
     "submission-response.schema.json");
-RoundTripJson<TrainingResponse>(
-    """{"submission_id":"submission-1","status":"accepted"}""",
-    "training-response.schema.json");
 _ = ResultStatus.Cancelling;
 _ = ResultStatus.Cancelled;
 
@@ -90,6 +86,8 @@ ValidatePublicReplayReaders();
 ValidateReplayManifestLimits();
 ValidateReplayLineLimit();
 ValidateReplayDecompressionAndStepLimits();
+ValidateReplayCancellation();
+ValidateSemanticConstraints();
 
 Console.WriteLine(
     $"Validated canonical contracts, public persistence APIs, and {replayCount} replay steps.");
@@ -182,17 +180,25 @@ void ValidatePublicScenarioJson()
     AssertTypes(
         reparsed.Sensors,
         typeof(ForwardCameraSensor),
-        typeof(DistanceSensor));
+        typeof(GoalVectorSensor));
 }
 
 void ValidatePublicReplayReaders()
 {
     ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(
-        Path.Combine(fixtureDirectory, "navigation_replay_bundle_manifest.json"));
+        Path.Combine(fixtureDirectory, "navigation_replay_bundle_manifest.json"),
+        "submission-1",
+        "navigation_default");
     if (manifest.Chunks.Count != 2)
     {
         throw new InvalidOperationException("Replay manifest must contain two chunks.");
     }
+    AssertThrows<InvalidDataException>(
+        () => EmbodiedLabReplay.ReadManifest(
+            Path.Combine(fixtureDirectory, "navigation_replay_bundle_manifest.json"),
+            "other-job",
+            "navigation_default"),
+        "a Replay manifest for a different job");
 
     string replayPath = Path.Combine(
         fixtureDirectory,
@@ -208,6 +214,9 @@ void ValidatePublicReplayReaders()
     string gzipPath = Path.Combine(
         Path.GetTempPath(),
         $"embodiedlab-replay-{Guid.NewGuid():N}.jsonl.gz");
+    string trainGzipPath = Path.Combine(
+        Path.GetTempPath(),
+        $"embodiedlab-train-replay-{Guid.NewGuid():N}.jsonl.gz");
     try
     {
         using (var file = File.Create(gzipPath))
@@ -224,11 +233,100 @@ void ValidatePublicReplayReaders()
             throw new InvalidOperationException(
                 "Compressed replay reader must return two steps.");
         }
+
+        var chunk = new EvalReplayBundleChunk
+        {
+            CheckpointStep = 0,
+            Path = "eval/checkpoint.jsonl.gz",
+            Format = EvalReplayBundleChunkFormat.JsonlGz,
+            StepCount = 2,
+            EpisodeCount = 1,
+        };
+        IReadOnlyList<ReplayLogStep> validatedSteps = EmbodiedLabReplay.ReadChunk(
+            gzipPath,
+            chunk,
+            "submission-1",
+            "navigation_default");
+        if (validatedSteps.Count != 2)
+        {
+            throw new InvalidOperationException(
+                "Identity-aware Replay reader must return two steps.");
+        }
+
+        AssertThrows<InvalidDataException>(
+            () => EmbodiedLabReplay.ReadChunk(
+                gzipPath,
+                chunk,
+                "submission-1",
+                "other-scenario"),
+            "a Replay chunk for a different Scenario");
+
+        string[] trainLines = File.ReadAllLines(replayPath)
+            .Select((line, index) =>
+            {
+                JObject step = JObject.Parse(line);
+                step["phase"] = "train";
+                step["policy_mode"] = "stochastic";
+                step["checkpoint_step"] = index + 1;
+                return step.ToString(Formatting.None);
+            })
+            .ToArray();
+        using (var file = File.Create(trainGzipPath))
+        using (var gzip = new GZipStream(file, CompressionMode.Compress))
+        using (var writer = new StreamWriter(gzip))
+        {
+            writer.WriteLine(string.Join(Environment.NewLine, trainLines));
+        }
+
+        var trainChunk = new TrainReplayBundleChunk
+        {
+            CheckpointStep = 2,
+            StartStep = 1,
+            EndStep = 2,
+            Path = "train/chunk.jsonl.gz",
+            Format = TrainReplayBundleChunkFormat.JsonlGz,
+            StepCount = 2,
+        };
+        IReadOnlyList<ReplayLogStep> trainSteps = EmbodiedLabReplay.ReadChunk(
+            trainGzipPath,
+            trainChunk,
+            "submission-1",
+            "navigation_default");
+        if (trainSteps.Select(step => step.CheckpointStep).SequenceEqual(new[] { 1, 2 }) ==
+            false)
+        {
+            throw new InvalidOperationException(
+                "Training Replay reader must preserve its checkpoint range.");
+        }
+
+        trainChunk.StartStep = 0;
+        AssertThrows<InvalidDataException>(
+            () => EmbodiedLabReplay.ReadChunk(
+                trainGzipPath,
+                trainChunk,
+                "submission-1",
+                "navigation_default"),
+            "a training Replay chunk that omits its declared start checkpoint");
     }
     finally
     {
         File.Delete(gzipPath);
+        File.Delete(trainGzipPath);
     }
+}
+
+void ValidateReplayCancellation()
+{
+    string replay = File.ReadAllText(
+        Path.Combine(fixtureDirectory, "navigation_default_replay_log.jsonl"));
+    using var cancellation = new CancellationTokenSource();
+    using var reader = new CancellingTextReader(replay, cancellation);
+    AssertThrows<OperationCanceledException>(
+        () => EmbodiedLabReplay.ReadSteps(
+            reader,
+            ReplayResourceLimits.Default,
+            cancellation.Token),
+        "Replay validation that ignores cancellation while reading");
 }
 
 void ValidateReplayManifestLimits()
@@ -307,6 +405,58 @@ void ValidateReplayDecompressionAndStepLimits()
         "more replay steps than the configured total limit");
 }
 
+void ValidateSemanticConstraints()
+{
+    ResultDocument mismatchedResult = JsonConvert.DeserializeObject<ResultDocument>(
+        ReadFixture("navigation_completed_result_document.json")) ??
+        throw new InvalidOperationException("Could not read the completed result fixture.");
+    mismatchedResult.Progress.Phase = ResultStatus.Running;
+    AssertThrows<InvalidDataException>(
+        () => ContractSemanticValidator.ValidateResultDocument(mismatchedResult),
+        "a result whose status differs from progress.phase");
+
+    ResultDocument wrongOpset = JsonConvert.DeserializeObject<ResultDocument>(
+        ReadFixture("navigation_completed_result_document.json")) ??
+        throw new InvalidOperationException("Could not read the completed result fixture.");
+    wrongOpset.ResultBundle!.Artifacts!.OnnxModel!.OpsetVersion =
+        (OnnxModelArtifactLocationOpsetVersion)18;
+    AssertThrows<InvalidDataException>(
+        () => ContractSemanticValidator.ValidateResultDocument(wrongOpset),
+        "an ONNX model with a noncanonical opset");
+
+    ResultDocument wrongActionMapping = JsonConvert.DeserializeObject<ResultDocument>(
+        ReadFixture("navigation_completed_result_document.json")) ??
+        throw new InvalidOperationException("Could not read the completed result fixture.");
+    wrongActionMapping.ResultBundle!.Artifacts!.OnnxModel!.Output
+        .ActionMapping["forward"] = "policy_forward";
+    AssertThrows<InvalidDataException>(
+        () => ContractSemanticValidator.ValidateResultDocument(wrongActionMapping),
+        "an ONNX model with an unsupported action mapping");
+
+    ResultDocument invalidMetrics = JsonConvert.DeserializeObject<ResultDocument>(
+        ReadFixture("navigation_completed_result_document.json")) ??
+        throw new InvalidOperationException("Could not read the completed result fixture.");
+    invalidMetrics.ResultBundle!.Summary!.SuccessRate = double.NaN;
+    AssertThrows<InvalidDataException>(
+        () => ContractSemanticValidator.ValidateResultDocument(invalidMetrics),
+        "a completed result with non-finite metrics");
+
+    JObject replayStep = JObject.Parse(
+        File.ReadLines(
+            Path.Combine(fixtureDirectory, "navigation_default_replay_log.jsonl"))
+            .First());
+    replayStep["policy_mode"] = "stochastic";
+    AssertThrows<InvalidDataException>(
+        () => EmbodiedLabReplay.ParseSteps(replayStep.ToString(Formatting.None)),
+        "an evaluation replay step with stochastic policy mode");
+
+    JObject manifest = JObject.Parse(
+        ReadFixture("navigation_replay_bundle_manifest.json"));
+    JArray chunks = (JArray)manifest["chunks"]!;
+    chunks[1]!["path"] = chunks[0]!["path"]!.Value<string>();
+    AssertManifestRejected(manifest, "duplicate replay chunk paths");
+}
+
 ReplayResourceLimits CreateReplayLimits(
     long maximumDecompressedBytes,
     int maximumLineBytes,
@@ -341,9 +491,17 @@ JObject CreateReplayChunk(string path, int stepCount)
         ["phase"] = "eval",
         ["policy_mode"] = "deterministic",
         ["checkpoint_step"] = 5000,
+        ["start_step"] = JValue.CreateNull(),
+        ["end_step"] = JValue.CreateNull(),
         ["path"] = path,
         ["format"] = "jsonl.gz",
+        ["size_bytes"] = 1,
+        ["sha256"] = new string('0', 64),
         ["step_count"] = stepCount,
+        ["episode_count"] = 1,
+        ["success_rate"] = 1.0,
+        ["avg_reward"] = 1.0,
+        ["avg_steps"] = 1.0,
     };
 }
 
@@ -393,4 +551,24 @@ void AssertThrows<TException>(Action action, string description)
     }
 
     throw new InvalidOperationException($"Accepted {description}.");
+}
+
+sealed class CancellingTextReader : StringReader
+{
+    private readonly CancellationTokenSource cancellation;
+
+    internal CancellingTextReader(
+        string value,
+        CancellationTokenSource cancellation)
+        : base(value)
+    {
+        this.cancellation = cancellation;
+    }
+
+    public override int Read(char[] buffer, int index, int count)
+    {
+        int read = base.Read(buffer, index, count);
+        cancellation.Cancel();
+        return read;
+    }
 }
