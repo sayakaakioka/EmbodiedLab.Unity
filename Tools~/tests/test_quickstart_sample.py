@@ -187,9 +187,7 @@ class QuickstartSampleTests(unittest.TestCase):
             encoding="utf-8"
         )
         scenario = json.loads(
-            (SAMPLE_DIRECTORY / "NavigationScenario.json").read_text(
-                encoding="utf-8"
-            )
+            (SAMPLE_DIRECTORY / "NavigationScenario.json").read_text(encoding="utf-8")
         )
 
         for contract_member in (
@@ -234,6 +232,8 @@ class QuickstartSampleTests(unittest.TestCase):
                 "height": 84,
                 "semantic_mode": "traversable_vs_blocked",
                 "mount_height_meters": 0.6,
+                "mount_height_min_meters": 0.6,
+                "mount_height_max_meters": 0.6,
                 "pitch_degrees": 0.0,
                 "vertical_fov_degrees": 70.0,
                 "near_clip_meters": 0.05,
