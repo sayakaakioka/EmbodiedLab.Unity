@@ -47,6 +47,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         private void Update()
         {
+            UpdateOverviewCameraViewport();
             replayPlayer?.Tick(Time.deltaTime);
             inferenceRunner?.Tick(Time.deltaTime);
         }
@@ -319,6 +320,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             {
                 scenario = ScenarioBundleJson.Deserialize(scenarioJson.text);
                 worldBuilder.Build(scenario);
+                UpdateOverviewCameraViewport();
                 CreateInferenceRunner();
                 activityText = "Fixed scenario loaded.";
             }

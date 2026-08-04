@@ -13,7 +13,14 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private const float PanelLeft = 40f;
         private const float PanelTop = 40f;
         private const float PanelMaximumWidth = 1040f;
+        private const float PanelPreferredMinimumWidth = 640f;
+        private const float PanelMaximumScreenFraction = 0.42f;
         private const float PanelBottomMargin = 40f;
+        private const float WorldGap = 40f;
+        private const float WorldRightMargin = 40f;
+        private const float WorldTopMargin = 40f;
+        private const float WorldBottomMargin = 40f;
+        private const float WorldPreferredMinimumWidth = 480f;
         private const float FieldLabelWidth = 300f;
         private const float ButtonHeight = 60f;
         private const float TextFieldHeight = 56f;
@@ -29,13 +36,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         private void OnGUI()
         {
             EnsureGuiStyles();
-            float panelWidth = Mathf.Min(PanelMaximumWidth, Screen.width - (PanelLeft * 2f));
-            float panelHeight = Mathf.Max(
-                360f,
-                Screen.height - PanelTop - PanelBottomMargin);
-            GUILayout.BeginArea(
-                new Rect(PanelLeft, PanelTop, panelWidth, panelHeight),
-                panelStyle);
+            Rect panelRect = CalculatePanelRect(Screen.width, Screen.height);
+            GUILayout.BeginArea(panelRect, panelStyle);
             panelScrollPosition = GUILayout.BeginScrollView(panelScrollPosition);
 
             GUILayout.Label("EmbodiedLab Tutorial", titleStyle);
@@ -55,6 +57,64 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 bodyStyle);
             GUILayout.EndScrollView();
             GUILayout.EndArea();
+        }
+
+        internal static Rect CalculatePanelRect(float screenWidth, float screenHeight)
+        {
+            float usableWidth = Mathf.Max(
+                2f,
+                screenWidth - PanelLeft - WorldGap - WorldRightMargin);
+            float minimumPanelWidth = Mathf.Min(
+                PanelPreferredMinimumWidth,
+                usableWidth * 0.5f);
+            float reservedWorldWidth = Mathf.Min(
+                WorldPreferredMinimumWidth,
+                usableWidth * 0.5f);
+            float preferredPanelWidth = Mathf.Clamp(
+                screenWidth * PanelMaximumScreenFraction,
+                minimumPanelWidth,
+                PanelMaximumWidth);
+            float panelWidth = Mathf.Min(
+                preferredPanelWidth,
+                usableWidth - reservedWorldWidth);
+            float panelHeight = Mathf.Max(
+                1f,
+                screenHeight - PanelTop - PanelBottomMargin);
+            return new Rect(PanelLeft, PanelTop, panelWidth, panelHeight);
+        }
+
+        internal static Rect CalculateOverviewViewport(
+            Rect panelRect,
+            float screenWidth,
+            float screenHeight)
+        {
+            float safeScreenWidth = Mathf.Max(1f, screenWidth);
+            float safeScreenHeight = Mathf.Max(1f, screenHeight);
+            float worldLeft = panelRect.xMax + WorldGap;
+            float worldWidth = Mathf.Max(
+                1f,
+                safeScreenWidth - worldLeft - WorldRightMargin);
+            float worldHeight = Mathf.Max(
+                1f,
+                safeScreenHeight - WorldTopMargin - WorldBottomMargin);
+            return new Rect(
+                worldLeft / safeScreenWidth,
+                WorldBottomMargin / safeScreenHeight,
+                worldWidth / safeScreenWidth,
+                worldHeight / safeScreenHeight);
+        }
+
+        private void UpdateOverviewCameraViewport()
+        {
+            Camera? overviewCamera = worldBuilder?.OverviewCamera;
+            if (overviewCamera != null)
+            {
+                Rect panelRect = CalculatePanelRect(Screen.width, Screen.height);
+                overviewCamera.rect = CalculateOverviewViewport(
+                    panelRect,
+                    Screen.width,
+                    Screen.height);
+            }
         }
 
         private void DrawScenarioStep()

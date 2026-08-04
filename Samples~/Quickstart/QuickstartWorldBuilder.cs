@@ -30,6 +30,8 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         internal Camera? ForwardCamera { get; private set; }
 
+        internal Camera? OverviewCamera { get; private set; }
+
         internal Vector3 RobotStartPosition { get; private set; }
 
         internal Quaternion RobotStartRotation { get; private set; }
@@ -260,6 +262,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             camera.orthographicSize = Math.Max(width, depth) * 0.62f;
             camera.nearClipPlane = 0.1f;
             camera.farClipPlane = Math.Max(width, depth) * 3f;
+            OverviewCamera = camera;
         }
 
         private void CreateLighting()
@@ -310,6 +313,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             RobotTransform = null;
             GoalTransform = null;
             ForwardCamera = null;
+            OverviewCamera = null;
             RobotStartPosition = default;
             RobotStartRotation = default;
             GoalRadius = 0f;

@@ -19,8 +19,21 @@ artifact、Replay、Windows x64 ONNX inference を一通り理解できる状態
 - world、Replay、inference の実装は、それぞれ現在の実責務に対応する小さな内部型へ
   分ける。
 - 各章の完成版を別 directory へ複製しない。重複する sample を複数保守しない。
-- public SDK API は増やさない。チュートリアル固有の型は sample assembly の内部実装と
-  する。
+- sample を先に短くするためだけに内部 helper を増やさない。まず SDK の公開 API を責務、
+  型、命名、所有権、lifecycle、error、thread／cancellation 境界まで再設計し、world 構築、
+  Replay 再生、local ONNX inference、artifact 取得のうち frontend に依存しない機能を
+  小さな公開 API として抽出する。
+- 現在の `Quickstart*` 型を名前だけ変えてそのまま公開しない。既存 behavior を test で固定し、
+  汎用部分と tutorial 固有の表示／composition を分離した後に公開面を決める。
+- tutorial の controller は、整理後の公開 API を直接組み合わせる composition root と画面表示に
+  限定する。利用者が SDK の主要 API と処理順序をコードから追えることを、sample の
+  acceptance criterion とする。
+- 利用者が将来変更する world geometry の値は、Schema の既定値に隠さず固定 scenario 内へ
+  明記する。外周壁の `height` は現在値 `2.0` meter、内側 obstacle は `1.0` meter を
+  各要素に記述する。内側要素の ID は型と一致する `obstacle_*` とする。
+- 観測へ影響する active sensor parameter も Schema の既定値に隠さない。forward camera の
+  resolution、semantic mode、mount height、pitch、vertical FOV、near／far clip は固定
+  scenario 内へ現在値を明記する。
 
 ## 学習順序
 
@@ -66,10 +79,16 @@ cloud cancel は監視章の補足操作として残す。`Restore` は capabili
 - `running` で総 step 数が分かった後だけ数値進捗を表示する。
 - local monitoring の停止と cloud cancel は別操作であることを明記する。
 - Replay と inference の現在の実行状態だけを表示し、内部診断値を常時列挙しない。
+- 操作 panel は左、canonical world は右の独立した viewport に表示し、互いに重ねない。
+  QHD では左 panel を読みやすい最大幅に保ち、world 側へより広い領域を割り当てる。
+  画面幅が狭い場合も両領域を縮め、world を panel の背面へ戻さない。
 
 ## テスト境界
 
-- SDK facade、transport、schema、Replay reader の既存テストは変更しない。
+- SDK facade、transport、schema、Replay reader の既存 behavior を維持し、公開 API へ抽出する
+  world、Replay playback、inference、artifact 処理にも package-owned test を追加する。
+- 新しい公開 API は XML documentation、null／invalid state、resource limit、dispose、
+  cancellation、Unity main thread 境界を検証し、sample の private helper test だけに依存しない。
 - Quickstart behavior test では、履歴保存固有のテストを削除する。
 - Replay timeline、path validation、ONNX input／output contract、observation／action math は
   純粋ロジックとして維持する。
@@ -84,7 +103,7 @@ cloud cancel は監視章の補足操作として残す。`Restore` は capabili
 ## 対象外
 
 - EnvForge の SDK revision 更新と履歴 UI 移行
-- 新しい public inference API
 - Sentis、model conversion、他 OS 向け ONNX Runtime
 - 一般認証、quota、billing、任意 remote code execution
 - 独立した複数 sample や旧 Quickstart の互換 copy
+- 汎用 job history、credential store、Editor UI を SDK 公開 API に含めること

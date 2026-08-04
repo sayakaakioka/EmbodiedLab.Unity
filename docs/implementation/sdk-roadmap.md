@@ -352,6 +352,179 @@ EnvForge の再移行は第二段階とする。
 現在の package sample には含めない。詳細は
 [tutorial-sample.md](tutorial-sample.md) を参照する。
 
+### tutorial を基準にした公開 API の再設計
+
+2026-08-04 の人間レビューで、sample-internal helper を増やして見た目だけを短くする方針を
+改めた。これは補助 class の単純な移動や改名ではなく、SDK の公開 API を先にきっちり設計し、
+その API を使う最小の tutorial を組み直す作業とする。
+
+- 現在の public API と約2,000行の `Quickstart*` helper の責務を棚卸しし、各責務を
+  「既存 public API を直接使う」「汎用機能として抽出する」「tutorial 固有として残す」の
+  いずれかに分類する。
+- `QuickstartCloudJob` は facade として公開せず、tutorial から `EmbodiedLabJob` の submit、
+  monitor、cancel を直接読める形にする。
+- Scenario Bundle からの Unity world 構築、Replay timeline／playback、semantic camera と
+  ONNX contract／session／action 適用、artifact の取得と検証は、frontend 非依存性を確認した
+  うえで少数の型付き public API へ整理する。
+- 現在の `Quickstart*` class を丸ごと public にしたり、sample 固有の UI state、保存 path、
+  status text を SDK API に混ぜたりしない。任意 workflow、job history、credential persistence、
+  Editor UI は引き続き frontend の責務とする。
+- public API は namespace と名称、入力／出力型、ownership と dispose、async cancellation、
+  Unity main thread、resource limit、invalid state、exception type を設計対象とし、XML documentation
+  と利用例を用意する。pre-release のため、置き換えた sample helper の互換 wrapper は残さない。
+- 抽出前に現在 behavior を test で固定し、抽出後は package-owned unit／Unity Editor test で
+  API 自体を検証する。Unity 2022.3.19f1 と 6000.3.11f1、実 ONNX model の Editor／Standalone
+  smoke test を維持する。
+- API 設計と test が確定してから tutorial を書き換える。controller は整理済み public API の
+  composition と画面表示に限定し、主要 workflow を150～250行程度で追えることを目安とする。
+  短さそのものより、利用者が public API の責務と呼び出し順を誤解なく読めることを優先する。
+- tutorial README は public API の役割表、最小 code、詳細 API document への導線を持ち、
+  tutorial の内部 helper を SDK の主要利用面として説明しない。
+- cloud job の受付は server-owned workflow とする。client-visible な `POST /submissions` が
+  Scenario の検証／保存、queued Result Document の作成、training dispatch の開始までを受け付け、
+  保存後の dispatch／training 失敗と結果不明状態の調停は server と reconciliation が
+  Result Document に反映する。submission 保存自体に失敗した場合だけ、job handle を作らず
+  client へ HTTP error を返す。
+- client-visible な `POST /submissions/{submission_id}/train`、Unity transport の
+  `StartTrainingAsync`、`EmbodiedLabTrainingStartException`、例外から disposable job を回収する
+  sample 処理は削除する。SDK の `EmbodiedLabJob.SubmitAsync` は一つの受付操作として job を返し、
+  以降の dispatch／training failure は通常の `ResultDocument` の terminal `failed` として扱う。
+- `EmbodiedLabJob` は一つの result monitor を内部で所有し、複数の
+  `WaitForCompletionAsync` caller が同じ terminal result を待てるようにする。各 caller の
+  `CancellationToken` はその caller の local wait だけを止め、共有 monitor や cloud job は
+  止めない。共有 monitor は terminal result、明示的な local stop、または `Dispose` まで維持する。
+- `ResultUpdated` は job 作成時に capture した `SynchronizationContext` へ通知する契約とし、
+  Unity main thread から `SubmitAsync`／`Restore` した場合は main thread notification を保証する。
+  context がない場合の実行 thread も API document に明記し、暗黙の保証を作らない。
+- `Dispose` は local monitor、transport、native／managed resource の解放だけを行い、cloud job を
+  cancel しない。cloud cancellation は `CancelAsync` だけが行うことを API 名、XML documentation、
+  tutorial、test で固定する。
+- wire deserialization 用の mutable `ResultDocument` を、そのまま job の public state として
+  共有しない。`LatestResult`、`ResultUpdated`、completion result は caller が変更できない
+  immutable snapshot を公開し、内部状態を consumer の mutation から隔離する。
+- 既存 API を含むすべての public type／member に XML documentation を付け、ownership、state
+  transition、thread、cancellation、dispose、cloud cancellation、exception、resource limit を
+  記載する。public API test はこれら5点を behavior として検証し、sample helper に同じ lifecycle
+  制御を重複実装しない。
+- model と Replay は、一括 facade ではなく個別の型付き download API とする。model download は
+  検証済み metadata と local path を持つ immutable result を返す。Replay download は typed な
+  selection（固定 tutorial では latest deterministic evaluation）を受け取り、manifest と chunk の
+  download、selection、identity／step count 検証、parse を SDK 内で完結し、検証済み manifest、
+  selected chunk、read-only steps、local path を持つ immutable result を返す。
+- Replay manifest の job／scenario identity、chunk の phase／policy mode／checkpoint／step count、
+  全 step の job／scenario identity は sample 固有の検証にせず、public Replay API の契約とする。
+  remote chunk path と resource limit の既存検証も維持し、sample は保存 root、UI state、再生開始の
+  判断だけを所有する。
+- すべての downloadable artifact metadata に `size_bytes` と `sha256` を必須追加する。model と
+  Replay manifest は Result Bundle の artifact location に、Replay chunk は manifest の各 chunk
+  entry に記録する。`size_bytes` は保存／転送される object の正確な byte 数、`sha256` は同じ
+  byte 列の lowercase hexadecimal SHA-256 digest とする。圧縮 Replay chunk では展開後ではなく
+  download される圧縮 object を対象にする。
+- trainer／artifact uploader は upload 前に size と digest を算出して metadata と同じ object を
+  保存する。Unity SDK は `.part` への streaming download 中に byte 数と SHA-256 を検証し、両方が
+  一致した場合だけ既存の atomic replace を行う。不一致、早すぎる EOF、超過、cancel、network
+  failure では一時 file を削除して明確な integrity error とし、既存 file を壊さない。
+- metadata の declared size は既存 resource limit を緩める根拠にしない。contract 上の size／digest、
+  HTTP content length、streamed byte count、format ごとの maximum の不一致を test し、EmbodiedLab、
+  EmbodiedLab.Unity、EnvForge の fixture と result compatibility を同時更新する。
+- tutorial は `Application.persistentDataPath` 配下の保存 root だけを選び、remote relative path、filename、
+  root 外脱出、`.part`、atomic replace、resource limit、size／digest の検証は SDK の typed artifact／
+  Replay download API が所有する。download result は検証済み final local path を immutable value として
+  返し、現在の `QuickstartLocalPaths` は削除する。
+- progress 文言、button enable 状態、confirmation、activity／error 表示、`Debug.LogException` は
+  tutorial presentation の責務とし、public SDK API へ含めない。typed exception と機械判定可能な
+  state は SDK が返し、小さな `QuickstartProgressText` は view へ統合する。
+- Replay playback は二層の公開 API とする。Unity 非依存の timeline は検証済み immutable Replay、
+  明示的な playback options、clock state を所有し、immutable frame を返す。Unity player は timeline
+  の frame を対象 `Transform` へ適用する薄い層とし、UI status、button state、保存 path を持たない。
+- timeline の操作は `Play`、現在位置を維持する `Pause`、先頭へ戻す `Reset` を分離し、現在の
+  `Stop` が pause と rewind を兼ねる曖昧さを除く。時間は caller が `Advance(deltaSeconds)` へ
+  渡し、scaled／unscaled Unity time の選択を SDK 内へ隠さない。
+- episode 間 pause、playback speed、補間方針などの表示上の値は typed playback options とし、
+  固定 tutorial では `episode_pause_seconds: 0.5` と `playback_speed: 1.0` を C# で明示する。
+  これらは Scenario／Replay の cloud data contract ではないため Scenario JSON には追加しない。
+- frame は補間済み X／Z／yaw、episode／step identity、再生状態を read-only value として公開し、
+  mutable `ReplayLogStep` への参照を外へ出さない。Unity player は contract の X／Z／yaw を反映して
+  対象 Transform の Y を維持することを XML documentation と test で固定する。
+- 連続 step の補間、不連続 step の hold／snap、shortest-path yaw、episode boundary、pause、reset、
+  大きな delta、invalid numeric value の既存 behavior test を package-owned timeline test へ移す。
+- local ONNX inference は、型付き `PolicyContract` と disposable な `PolicySession` を公開 API とする。
+  contract は Scenario Bundle の observation／action 宣言と download 済み model metadata から構成し、
+  実 ONNX session の input／output name、dtype、layout、shape、action mapping を完全照合する。
+- `obs_0`／`obs_1`、112 x 84、RGB channel 数、numeric value 数、最初に見つかった2値以上の float
+  output といった sample 内の判定を削除する。output name／layout／mapping は Result Bundle の
+  型付き metadata を正本とし、現在の文字列 dictionary の `action_mapping` は検証可能な contract
+  type へ置き換える。
+- `PolicySession` は integrity 検証済み model path、`PolicyContract`、typed session options を受け、
+  native ONNX session と tensor lifetime を所有する。thread 数、memory arena、memory pattern、graph
+  optimization は端末固有の local execution options とし、Scenario JSON へ混ぜず tutorial C# で
+  現在値を明示する。
+- package は inference 対応 platform／architecture を native library load 前に判定できる public
+  support API を提供する。現在の bundled ONNX Runtime 対応外では専用 unsupported error を返し、
+  `DllNotFoundException` などの偶発的な native load failure を capability 判定として使わない。
+- contract mismatch、unsupported platform、model load、run、non-finite output、dispose 後の利用を
+  package-owned test で検証し、tutorial 固有の status text や `Debug.LogException` は session API に
+  含めない。
+- `PolicySession.Run` は model metadata の action mapping と range を検証し、有限かつ契約範囲内の
+  値だけを immutable な型付き action として返す。現在の exported ONNX は forward を `[0, 1]`、
+  turn を `[-1, 1]` へ変換済みであるため、範囲外を Unity 側で clamp して推論を継続しない。
+  non-finite または範囲外の output は contract mismatch として明示的に停止させ、sample 固有の
+  `QuickstartRawAction`／`QuickstartAppliedAction` と重複した clamp／warning 表示は削除する。
+- navigation action の適用は、Scenario Bundle、現在の X／Z／yaw pose、型付き action を受け取る
+  Unity 非依存の deterministic `NavigationStepper` として公開する。結果は次の immutable pose、
+  collision identity、goal 到達状態を持ち、Unity frontend はその結果を対象 `Transform` へ反映する。
+- `NavigationStepper` は EmbodiedLab runtime と同じ world bounds、robot radius、回転付き 2D box、
+  segment collision、goal radius、旋回後の前進順序を実装する。Python と C# に同じ canonical
+  Scenario／pose／action fixture を与え、step ごとの pose、collision、goal 判定を完全照合する。
+  Unity `Physics.CapsuleCast` を同じ契約の代替実装として残さない。
+- `forward_step_meters` と `turn_degrees_per_step` は Scenario JSON の action contract から取得する。
+  `decision_interval_seconds` は学習結果を決める空間的な action contract ではなく local loop の実時間
+  scheduling option とし、tutorial C# で現在値 `0.1` を明示する。
+- SDK は semantic observation、numeric observation、`PolicySession`、`NavigationStepper`、typed
+  result という小さな primitive を公開し、それらを隠す総合 `PolicyRunner` facade は追加しない。
+  tutorial の `Update` は、明示した local interval に従って observation 作成、model 実行、navigation
+  step、`Transform` 反映を順番に呼び、主要な推論 loop を20～30行程度で読める形にする。
+- Replay と inference の排他、scaled／unscaled time、開始／停止 button、status text、停止時の pose
+  reset は frontend の責務とする。SDK の session／provider／stepper は tutorial UI state や
+  `Time.deltaTime` を所有しない。
+- Scenario Bundle の契約解釈は、検証済み immutable `NavigationWorld` として public API へ整理する。
+  world bounds、回転付き obstacle、robot 寸法と start pose、goal、camera／action contract を一度だけ
+  解決し、`NavigationStepper` と semantic observation contract は同じ world definition を使う。
+- Unity primitive、material、表示色、overview camera、light、GameObject hierarchy は契約の意味ではなく
+  tutorial presentation であるため、公開 world builder へ含めない。現在の `QuickstartWorldBuilder` は
+  丸ごと公開せず、検証済み `NavigationWorld`を表示して pose を `Transform` へ反映する小さな
+  `TutorialWorldView` へ置き換える。EnvForge の scene authoring は引き続き EnvForge の責務とする。
+- semantic image observation は、Scenario Bundle と `PolicyContract` から構成する型付き observation
+  contract と、Unity の `Camera` から検証済み tensor を生成する小さな public provider に整理する。
+  resolution、semantic mode、camera mount、pitch、FOV、clip、channel order、origin、layout、dtype、
+  normalization を重複した sample 定数として持たない。
+- policy input は mutable な `float[]` と固定 index を tutorial へ公開せず、semantic frame、
+  `GoalAngleDegrees`、`GoalDistanceMeters` を名前付きで持つ immutable `NavigationObservation` とする。
+  `NavigationObservation` は `NavigationWorld` と現在 pose から numeric 値を構成し、`PolicySession` が
+  `PolicyContract` の input mapping に従って tensor 順序と shape へ encode する。tutorial は
+  `obs_0`／`obs_1`、要素数、配列 index を扱わない。
+- goal angle の正規化、四象限、±180度境界、goal 上のゼロ距離、距離単位、tensor encoding は
+  EmbodiedLab と C# の canonical fixture で照合する。world、pose、camera を直接 `PolicySession` へ
+  渡して observation 作成を session 内へ隠さない。
+- semantic camera capture は Unity main thread で同期実行し、`PolicySession.Run` も caller thread で
+  一つの navigation decision を同期的に完了させる。同じ session の並行 `Run` は許可せず、SDK 内に
+  background worker、連続 runner、暗黙の `Task.Run` を追加しない。
+- semantic provider は render texture、readback texture、変換用 buffer を再利用して所有する。
+  capture が返す read-only frame は次の capture または provider の `Dispose` まで有効とし、tutorial は
+  capture 後すぐに observation を構成して同期 `Run` へ渡す。main thread 負荷が実測上の問題になった
+  場合だけ、buffer lifetime、pose snapshot、cancel、in-flight decision を含む非同期 API を別途設計する。
+- Unity Camera provider の採用条件として、同じ Scenario と canonical pose から EmbodiedLab の解析的
+  renderer と Unity が生成する semantic class map の cross-runtime conformance test を追加する。
+  現在の Editor／Standalone smoke は model が実行できることの確認として維持するが、観測画素の
+  一致を証明する test の代わりにはしない。
+- conformance test が一致しない場合は、投影、pixel center、vertical origin、clip、color space、
+  anti-aliasing、geometry、shader の設定を先に修正する。それでも契約どおりに一致させられない場合は、
+  C# の解析的 renderer を唯一の provider として実装し、Unity Camera と二方式の fallback は残さない。
+- semantic observation は package-owned shader を必須とし、URP／built-in の一般 shader へ暗黙に
+  fallback しない。graphics device がない実行環境は native resource 作成前に専用 unsupported error
+  とし、Unity Camera provider はローカル Unity 推論だけで使用する。EmbodiedLab の Cloud Run 学習や
+  CI に Unity Editor／graphics runtime を追加しない。
+
 ### Unity 2022.3.19f1 対応
 
 2026-08-03 に、利用者環境の下限である Unity 2022.3.19f1 を package の最小対応版とした。
@@ -362,7 +535,7 @@ EnvForge の再移行は第二段階とする。
   `run_unity_tests.py`／`run_unity_standalone_smoke.py` を `--unity-version` で切り替える。
 - 両 project で Input System 1.17.0 のみを有効にし、SDK package 自体は Input System
   非依存のままとした。
-- 両 Editor で package／import 済み tutorial test はそれぞれ14件全件成功、実
+- 両 Editor で package／import 済み tutorial test はそれぞれ16件全件成功、実
   `policy.onnx` を使った2件を含めて skip は0件だった。
 - 両 Editor の Windows x64 standalone で ONNX Runtime 1.24.4 の model load、画像 observation、
   inference、action 適用、正常終了を確認した。
@@ -397,11 +570,79 @@ EnvForge の再移行は第二段階とする。
 
 1. [human-review-guide.md](human-review-guide.md) に沿って SDK の責務と主導線を
    人間が確認する。
-2. package version、tag、release 手順を決める。
-3. 第二段階として EnvForge を確定した SDK contract へ追従させる。
-4. その後、固定 mode と宣言的 generated mode の選択を設計する。
+2. human review の決定に沿って contract と公開 API を整理し、その API で tutorial を
+   書き直す。
+3. package version、tag、release 手順を決める。
+4. 第二段階として EnvForge を確定した SDK contract と公開 API へ追従させる。
+5. その後、固定 mode と宣言的 generated mode の選択を設計する。
 
 各段階を一つの Issue と小さな PR に分け、テストと lint が通った状態で次へ進む。
+
+### `envforge_min_version` の削除方針
+
+2026-08-04 の人間レビューで、`envforge_min_version` は現在の責務分担に不要と判断した。
+human review 完了後、EmbodiedLab、EmbodiedLab.Unity、EnvForge を一つの契約変更として
+同時に更新する。
+
+- pre-release の v0 contract から直接削除し、旧 field の互換 layer や新しい v1 contract は
+  作らない。
+- `coordinate_system` の `envforge_xz_meters` も product-neutral で座標軸、向き、単位を
+  明示する値へ改名し、旧 enum value は残さない。正確な名称は3 repository の実装時に
+  contract 全体と照合して決める。
+- `action_space` に `forward_step_meters: 0.2` と `turn_degrees_per_step: 15.0` を追加し、
+  EmbodiedLab training runtime と Unity local inference が同じ Scenario Bundle の値を使う。
+  両 runtime の重複した直書き定数は削除し、値を変えた scenario では再学習を必須とする。
+- camera resolution と semantic mode は Scenario Bundle を正本とする。EmbodiedLab の
+  observation／policy network と Unity の render texture／readback／ONNX tensor 検証は
+  `ForwardCameraSensor` の値から構成し、112 x 84 や mode を重複した定数として持たない。
+  download した ONNX metadata が scenario の input shape と一致しない場合は明確に失敗させる。
+  現在未対応の semantic mode は値を無視せず、mode 選択時に unsupported error とする。
+- 固定 tutorial では policy input に使っていない `front_distance` を Scenario の sensor から
+  削除する。汎用 `DistanceSensor` 型は将来の対応用に contract へ残すが、sensor 不在時に
+  5 meter を補う training fallback と固定 Replay 診断出力は削除する。
+- 実際の numeric policy input である goal angle と goal distance を Scenario／model contract に
+  明示し、EmbodiedLab と Unity が同じ宣言から `obs_1` を構成する。`NumericValueCount = 2`、
+  `observation_layout` の不正確な初期値、配列 index の重複直書きは契約由来へ置き換える。
+- reward shaping は、すべてを `per_step` として表す現在の形をやめ、条件付き報酬ごとに
+  意味の合う contract type と判定値を持たせる。現行挙動を保つため、`goal_progress` の
+  `minimum_delta_meters: 0.005`、`wide_angle_penalty` の
+  `minimum_absolute_angle_degrees: 90.0`、`rear_angle_penalty` の
+  `minimum_absolute_angle_degrees: 150.0`、`inactive_penalty` の
+  `maximum_absolute_forward: 0.001` を Scenario Bundle に明示する。field 名は3 repository の
+  contract 更新時に型全体と照合して確定する。
+- `movement_threshold` を報酬 component として表す現在の疑似的な `per_step` component は
+  削除し、inactive 判定値として `inactive_penalty` へ統合する。EmbodiedLab runtime の
+  0.005／90／150 などの判定定数、および default Scenario を重ねて補う処理も削除し、
+  Scenario Bundle の値だけから判定する。既存の weight と条件分岐の優先順位は維持し、
+  reward 設定を変更した scenario では再学習を必須とする。
+- training は、学習結果または使用 resource に影響する値を Scenario Bundle の JSON から
+  すべて受け取る。現在省略されている `n_envs: 1`、`cpu_count: null`、
+  `torch_num_threads: null`、`n_epochs: 3` を固定 tutorial JSON に明記し、nullable resource 値の
+  `null` は runtime による自動選択を意味するものとして contract に定義する。
+- Stable-Baselines3 PPO に現在渡していない学習用の既定値も、型付きの training contract と
+  固定 tutorial JSON に明記する。少なくとも advantage、clipping、value loss、gradient、
+  state-dependent exploration、KL 制限に関する設定を対象にし、library version の既定値に
+  学習挙動を依存させない。正確な field 一覧と現在値は、固定している Stable-Baselines3
+  version の constructor と照合して3 repository の contract 更新時に確定する。
+- `cpu_count`、`torch_num_threads`、`n_envs`、device などの resource 指定は、受理してログへ
+  出すだけにせず、training job の実行環境へ反映する。利用可能な resource を超える指定や
+  未対応の device は黙って補正せず、submission validation または job 開始時に明確に失敗させる。
+- server 管理の artifact path、callback、任意の Python class、`verbose` など、学習内容や
+  resource 要求ではない実装用の値は Scenario Bundle へ公開しない。任意 class 名や
+  `policy_kwargs` をそのまま受け取る汎用実行 API にはせず、公開する policy 設定は検証可能な
+  型付き field に限定する。実行時に解決した全 training 値、library version、resource 値は
+  Result Bundle に記録し、再現可能にする。
+- 新しい training field を追加するまでは、未定義 field が Pydantic に無視されて「指定したが
+  反映されない」状態を避ける。training model も unknown field を forbid し、3 repository の
+  contract と runtime が揃うまでは tutorial JSON に先行追加しない。
+- EmbodiedLab の Pydantic model、JSON Schema、result compatibility、fixture、test、文書を
+  source of truth として先に更新する。
+- EmbodiedLab.Unity は同期した Schema から C# contract を再生成し、sample、fixture、test を
+  更新する。
+- 現在の EnvForge runtime はこの field を消費していないため、まず fixture と契約説明を
+  更新する。SDK を使う実装への全面移行は、上記の第二段階として別途行う。
+- 3 repository の開発と整合性検証は並行して行い、merge は EmbodiedLab、
+  EmbodiedLab.Unity、EnvForge の依存順とする。
 
 ## 保留事項
 

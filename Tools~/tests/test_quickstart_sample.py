@@ -176,6 +176,8 @@ class QuickstartSampleTests(unittest.TestCase):
         self.assertIn("TitleFontSize = 44", view)
         self.assertIn("GUILayout.BeginScrollView(panelScrollPosition)", view)
         self.assertIn("GUILayout.EndScrollView();", view)
+        self.assertIn("CalculateOverviewViewport", view)
+        self.assertIn("overviewCamera.rect", view)
         labels = tuple(f'GUILayout.Label("{step}.' for step in range(1, 7))
         positions = [view.index(label) for label in labels]
         self.assertEqual(positions, sorted(positions))
@@ -183,6 +185,11 @@ class QuickstartSampleTests(unittest.TestCase):
     def test_canonical_scenario_drives_visible_world(self) -> None:
         builder = (SAMPLE_DIRECTORY / "QuickstartWorldBuilder.cs").read_text(
             encoding="utf-8"
+        )
+        scenario = json.loads(
+            (SAMPLE_DIRECTORY / "NavigationScenario.json").read_text(
+                encoding="utf-8"
+            )
         )
 
         for contract_member in (
@@ -197,6 +204,42 @@ class QuickstartSampleTests(unittest.TestCase):
                 self.assertIn(contract_member, builder)
 
         self.assertNotIn("JsonConvert", builder)
+        self.assertEqual(
+            [wall["height"] for wall in scenario["world"]["static_walls"]],
+            [2.0, 2.0, 2.0, 2.0],
+        )
+        self.assertEqual(
+            [
+                (obstacle["id"], obstacle["height"])
+                for obstacle in scenario["world"]["static_obstacles"]
+            ],
+            [
+                ("obstacle_a", 1.0),
+                ("obstacle_b", 1.0),
+                ("obstacle_c", 1.0),
+                ("obstacle_d", 1.0),
+            ],
+        )
+        forward_camera = next(
+            sensor
+            for sensor in scenario["sensors"]
+            if sensor["type"] == "forward_camera"
+        )
+        self.assertEqual(
+            forward_camera,
+            {
+                "id": "front_camera",
+                "type": "forward_camera",
+                "width": 112,
+                "height": 84,
+                "semantic_mode": "traversable_vs_blocked",
+                "mount_height_meters": 0.6,
+                "pitch_degrees": 0.0,
+                "vertical_fov_degrees": 70.0,
+                "near_clip_meters": 0.05,
+                "far_clip_meters": 100.0,
+            },
+        )
 
     def test_replay_and_inference_use_the_shared_robot(self) -> None:
         artifacts = (SAMPLE_DIRECTORY / "QuickstartArtifacts.cs").read_text(
@@ -216,6 +259,13 @@ class QuickstartSampleTests(unittest.TestCase):
         self.assertIn("activeRobot.position", player)
         self.assertIn("activeRobot.rotation", player)
         self.assertIn("new QuickstartInferenceRunner(activeWorld)", controller)
+        self.assertLess(
+            controller.index("worldBuilder.Build(scenario);"),
+            controller.index(
+                "UpdateOverviewCameraViewport();",
+                controller.index("worldBuilder.Build(scenario);"),
+            ),
+        )
         self.assertIn("ForwardMetersPerDecision = 0.2f", runner)
         self.assertIn("TurnDegreesPerDecision = 15f", runner)
         self.assertNotIn(
