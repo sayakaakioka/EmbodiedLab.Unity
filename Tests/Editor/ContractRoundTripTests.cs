@@ -35,6 +35,10 @@ namespace EmbodiedLab.Unity.Tests
                 typeof(TerminalRewardComponent),
                 typeof(DistanceDeltaRewardComponent),
                 typeof(CollisionRewardComponent),
+                typeof(PerStepRewardComponent),
+                typeof(PerStepRewardComponent),
+                typeof(PerStepRewardComponent),
+                typeof(PerStepRewardComponent),
                 typeof(PerStepRewardComponent));
         }
 

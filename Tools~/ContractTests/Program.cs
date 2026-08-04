@@ -30,6 +30,10 @@ AssertTypes(
     typeof(TerminalRewardComponent),
     typeof(DistanceDeltaRewardComponent),
     typeof(CollisionRewardComponent),
+    typeof(PerStepRewardComponent),
+    typeof(PerStepRewardComponent),
+    typeof(PerStepRewardComponent),
+    typeof(PerStepRewardComponent),
     typeof(PerStepRewardComponent));
 _ = nameof(WorldSpec.StaticObstacles);
 _ = nameof(ScenarioBundle.SchemaVersion);

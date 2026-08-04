@@ -1,6 +1,6 @@
 # Contract schema snapshot
 
-The `v0` directory is an exact snapshot of the six JSON Schemas published by
+The `v0` directory is an exact snapshot of the seven JSON Schemas published by
 EmbodiedLab. `upstream.json` records the source commit and the SHA-256 digest of
 each file.
 
