@@ -158,16 +158,16 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 float[] activeNumericObservation = numericObservation ??
                     throw new InvalidOperationException(
                         "Numeric observation buffer is unavailable.");
-                string imageSummary = activeCamera.Capture(activeImageObservation);
+                activeCamera.Capture(activeImageObservation);
                 QuickstartInferenceMath.WriteNumericObservation(
                     robot.position,
                     robot.rotation.eulerAngles.y,
                     goal.position,
                     contract.NumericValues,
                     activeNumericObservation);
-                ObservationStatus =
-                    FormatNumericObservation(contract, activeNumericObservation) +
-                    $" | {imageSummary}";
+                ObservationStatus = FormatNumericObservation(
+                    contract,
+                    activeNumericObservation);
 
                 QuickstartAppliedAction action =
                     QuickstartInferenceMath.ApplyActionContract(

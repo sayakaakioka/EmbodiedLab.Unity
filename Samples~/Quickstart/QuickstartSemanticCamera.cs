@@ -26,32 +26,39 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                     "Inference requires a graphics device for semantic camera observations.");
             }
 
-            renderTexture = new RenderTexture(
-                contract.ImageWidth,
-                contract.ImageHeight,
-                16,
-                RenderTextureFormat.ARGB32)
+            try
             {
-                name = "EmbodiedLab Quickstart Semantic Observation",
-            };
-            if (!renderTexture.Create())
+                renderTexture = new RenderTexture(
+                    contract.ImageWidth,
+                    contract.ImageHeight,
+                    16,
+                    RenderTextureFormat.ARGB32)
+                {
+                    name = "EmbodiedLab Quickstart Semantic Observation",
+                };
+                if (!renderTexture.Create())
+                {
+                    throw new InvalidOperationException(
+                        "Semantic camera render texture could not be created.");
+                }
+
+                readback = new Texture2D(
+                    contract.ImageWidth,
+                    contract.ImageHeight,
+                    TextureFormat.RGB24,
+                    mipChain: false)
+                {
+                    name = "EmbodiedLab Quickstart Semantic Readback",
+                };
+            }
+            catch
             {
                 Dispose();
-                throw new InvalidOperationException(
-                    "Semantic camera render texture could not be created.");
+                throw;
             }
-
-            readback = new Texture2D(
-                contract.ImageWidth,
-                contract.ImageHeight,
-                TextureFormat.RGB24,
-                mipChain: false)
-            {
-                name = "EmbodiedLab Quickstart Semantic Readback",
-            };
         }
 
-        internal string Capture(float[] destination)
+        internal void Capture(float[] destination)
         {
             RenderTexture activeRenderTexture = renderTexture ??
                 throw new ObjectDisposedException(nameof(QuickstartSemanticCamera));
@@ -98,20 +105,6 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 camera.targetTexture = previousTarget;
                 RenderTexture.active = previousActive;
             }
-
-            int planeSize = contract.ImageHeight * contract.ImageWidth;
-            double red = 0d;
-            double green = 0d;
-            double blue = 0d;
-            for (int index = 0; index < planeSize; index++)
-            {
-                red += destination[index];
-                green += destination[planeSize + index];
-                blue += destination[planeSize * 2 + index];
-            }
-
-            return $"image mean r={red / planeSize:0.000} " +
-                $"g={green / planeSize:0.000} b={blue / planeSize:0.000}";
         }
 
         public void Dispose()
