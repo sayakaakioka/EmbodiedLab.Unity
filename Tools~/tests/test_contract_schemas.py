@@ -42,10 +42,15 @@ class ContractSchemaTests(unittest.TestCase):
         self.assertIn("ReplayLogStep", first["definitions"])
         self.assertIn("ResultDocument", first["definitions"])
         self.assertIn("ScenarioBundle", first["definitions"])
+        self.assertNotIn("SentisModelArtifactLocation", first["definitions"])
         self.assertNotIn("TrainingResponse", first["definitions"])
 
         submission_response = first["definitions"]["SubmissionResponse"]
         self.assertIn("cancel_token", submission_response["required"])
+        cancel_token = submission_response["properties"]["cancel_token"]
+        self.assertEqual(32, cancel_token["minLength"])
+        self.assertEqual(128, cancel_token["maxLength"])
+        self.assertEqual("^[A-Za-z0-9_-]+$", cancel_token["pattern"])
         self.assertEqual(
             [
                 "queued",
@@ -68,7 +73,12 @@ class ContractSchemaTests(unittest.TestCase):
         onnx_opset = first["definitions"]["OnnxModelArtifactLocation"]["properties"][
             "opset_version"
         ]
-        self.assertEqual([17], onnx_opset["enum"])
+        self.assertEqual([18], onnx_opset["enum"])
+
+        forward_step = first["definitions"]["ActionSpace"]["properties"][
+            "forward_step_meters"
+        ]
+        self.assertEqual(10.0, forward_step["maximum"])
 
         replay_actions = first["definitions"]["ReplayAction"]["properties"]["values"]
         self.assertEqual(2, replay_actions["minItems"])

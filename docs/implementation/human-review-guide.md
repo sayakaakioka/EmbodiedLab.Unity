@@ -39,8 +39,8 @@ Scenario / Result / Replay の通信、ジョブ lifecycle、artifact download �
 - v0 snapshot は6 schemaで、各 byte digest と upstream commit を記録する。
 - reward component は定義済み7要素をすべて明示する。
 - Result Bundle の `observation_layout` は `obs_0` / `obs_1` である。
-- 通常 ONNX は2 input、Sentis ONNX は固定長1 input で、どちらも
-  `inputs` 配列と output metadata を持つ。
+- `onnx_model` は camera と goal vector の2 input、および output metadata を持つ。
+- `sentis_model` や model-format fallback は現行契約に含まれない。
 
 ## 3. 公開 API とジョブ lifecycle を確認する（15分）
 
@@ -86,6 +86,8 @@ terminal state を古い更新で巻き戻さないことを確認する。
 manifest、chunk path、compressed/decompressed byte、1行、step 数の上限が
 固定 invariant であることを確認する。Replay 行の `scenario_id` と `job_id` が
 選択中の job と一致しない場合に拒否する経路も確認する。
+各 episode の step 0 は action 適用前の reset state で、action と reward はゼロ、event は
+空である。最初の action 適用後の状態は step 1 になることも確認する。
 
 Result JSON は transport、Replay manifest／row は `EmbodiedLabReplay` が構造に加えて
 状態間 invariant を検証する。`ScenarioBundleJson` は構造的 deserialize を担当し、

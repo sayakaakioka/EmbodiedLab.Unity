@@ -146,7 +146,8 @@ position and yaw to the same visible robot.
 
 Playback follows each step's `time_seconds`, interpolates only consecutive
 steps in the same episode, pauses briefly at episode boundaries, and resets to
-the first step when stopped.
+the first step when stopped. Step 0 is the episode reset state with zero action,
+zero reward, and no event; the state after the first applied action is step 1.
 
 ## 6. Run the policy on Windows x64
 
@@ -160,8 +161,9 @@ Read the inference files in this order:
    order from the Scenario and downloaded model metadata, then checks the ONNX
    session against them.
 2. `QuickstartSemanticCamera.cs` captures the submitted semantic camera.
-3. `QuickstartInferenceMath.cs` creates observations and clamps actions.
-4. `QuickstartOnnxPolicy.cs` owns one cached ONNX session.
+3. `QuickstartInferenceMath.cs` creates the declared observations.
+4. `QuickstartOnnxPolicy.cs` owns one cached ONNX session and rejects action
+   values outside the declared ranges.
 5. `QuickstartInferenceRunner.cs` applies decisions to the shared robot.
 
 Replay and inference are mutually exclusive. Starting one stops the other, and

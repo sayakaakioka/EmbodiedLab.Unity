@@ -853,9 +853,6 @@ namespace EmbodiedLab.Contracts
         [Newtonsoft.Json.JsonProperty("replay_bundle", Required = Newtonsoft.Json.Required.AllowNull)]
         public ArtifactLocation ReplayBundle { get; set; }
 
-        [Newtonsoft.Json.JsonProperty("sentis_model", Required = Newtonsoft.Json.Required.AllowNull)]
-        public SentisModelArtifactLocation SentisModel { get; set; }
-
     }
 
     /// <summary>
@@ -1121,48 +1118,6 @@ namespace EmbodiedLab.Contracts
 
         [Newtonsoft.Json.JsonProperty("id", Required = Newtonsoft.Json.Required.Always)]
         public string Id { get; set; }
-
-    }
-
-    /// <summary>
-    /// Canonical Unity Sentis artifact metadata.
-    /// </summary>
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
-    public partial class SentisModelArtifactLocation
-    {
-
-        [Newtonsoft.Json.JsonProperty("bucket", Required = Newtonsoft.Json.Required.Always)]
-        public string Bucket { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("format", Required = Newtonsoft.Json.Required.Always)]
-        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public SentisModelArtifactLocationFormat Format { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("inputs", Required = Newtonsoft.Json.Required.Always)]
-        public System.Collections.Generic.ICollection<ModelInput> Inputs { get; set; } = new System.Collections.ObjectModel.Collection<ModelInput>();
-
-        [Newtonsoft.Json.JsonProperty("opset_version", Required = Newtonsoft.Json.Required.Always)]
-        public SentisModelArtifactLocationOpsetVersion OpsetVersion { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("output", Required = Newtonsoft.Json.Required.Always)]
-        public ModelOutput Output { get; set; } = new ModelOutput();
-
-        [Newtonsoft.Json.JsonProperty("path", Required = Newtonsoft.Json.Required.Always)]
-        public string Path { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("sha256", Required = Newtonsoft.Json.Required.Always)]
-        public string Sha256 { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("size_bytes", Required = Newtonsoft.Json.Required.Always)]
-        public int SizeBytes { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("storage", Required = Newtonsoft.Json.Required.Always)]
-        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public ArtifactStorage Storage { get; set; }
-
-        [Newtonsoft.Json.JsonProperty("target", Required = Newtonsoft.Json.Required.Always)]
-        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public SentisModelArtifactLocationTarget Target { get; set; }
 
     }
 
@@ -1541,7 +1496,7 @@ namespace EmbodiedLab.Contracts
     public enum OnnxModelArtifactLocationOpsetVersion
     {
 
-        _17 = 17,
+        _18 = 18,
 
 
     }
@@ -1664,35 +1619,6 @@ namespace EmbodiedLab.Contracts
 
         [System.Runtime.Serialization.EnumMember(Value = @"scenario-bundle.v0")]
         ScenarioBundleV0 = 0,
-
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
-    public enum SentisModelArtifactLocationFormat
-    {
-
-        [System.Runtime.Serialization.EnumMember(Value = @"onnx")]
-        Onnx = 0,
-
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
-    public enum SentisModelArtifactLocationOpsetVersion
-    {
-
-        _15 = 15,
-
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "11.6.1.0 (Newtonsoft.Json v13.0.0.0)")]
-    public enum SentisModelArtifactLocationTarget
-    {
-
-        [System.Runtime.Serialization.EnumMember(Value = @"unity-sentis")]
-        UnitySentis = 0,
 
 
     }

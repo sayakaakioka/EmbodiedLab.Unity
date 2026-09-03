@@ -103,7 +103,6 @@ CURRENT_SEMANTIC_ONE_OF_BRANCHES = {
                     "properties": {
                         "onnx_model": {"not": {"type": "null"}},
                         "replay_bundle": {"not": {"type": "null"}},
-                        "sentis_model": {"not": {"type": "null"}},
                     }
                 },
                 "error": {"type": "null"},
@@ -117,7 +116,6 @@ CURRENT_SEMANTIC_ONE_OF_BRANCHES = {
                     "properties": {
                         "onnx_model": {"type": "null"},
                         "replay_bundle": {"type": "null"},
-                        "sentis_model": {"type": "null"},
                     }
                 },
                 "error": {"not": {"type": "null"}},

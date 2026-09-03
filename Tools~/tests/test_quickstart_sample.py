@@ -285,7 +285,7 @@ class QuickstartSampleTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         stopped_index = smoke.index("if (!runner.IsRunning)")
-        action_index = smoke.index('runner.ActionStatus.StartsWith("raw f="')
+        action_index = smoke.index('runner.ActionStatus.StartsWith("forward="')
         successful_finish = re.search(r"Finish\(\s*true,", smoke[action_index:])
         self.assertLess(stopped_index, action_index)
         self.assertIsNotNone(successful_finish)

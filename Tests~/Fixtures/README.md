@@ -1,7 +1,7 @@
 # Canonical contract fixtures
 
 These files are exact copies of the canonical fixtures at EmbodiedLab commit
-`94d48ed763b9d1da0c19810fb449c2191fa2c727`.
+`c1cf5b74c52d8de70e118c0c06c70f1c6c79b260`.
 
 They cover Scenario Bundle, Result Document (including Result Bundle), Replay
 Bundle manifest, and Replay Log step deserialization. Submission Response uses

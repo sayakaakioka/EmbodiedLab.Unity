@@ -71,7 +71,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.StandaloneSmoke
                 if (runner.ObservationStatus.StartsWith(
                     "angle=",
                     StringComparison.Ordinal) &&
-                    runner.ActionStatus.StartsWith("raw f=", StringComparison.Ordinal))
+                    runner.ActionStatus.StartsWith("forward=", StringComparison.Ordinal))
                 {
                     string observation = runner.ObservationStatus;
                     string action = runner.ActionStatus;

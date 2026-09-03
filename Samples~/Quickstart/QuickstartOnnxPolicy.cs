@@ -9,6 +9,36 @@ using Microsoft.ML.OnnxRuntime.Tensors;
 
 namespace EmbodiedLab.Unity.Samples.Quickstart
 {
+    internal readonly struct QuickstartPolicyAction
+    {
+        internal QuickstartPolicyAction(float forward, float turn)
+        {
+            if (!IsFinite(forward) || !IsFinite(turn))
+            {
+                throw new InvalidDataException(
+                    "ONNX policy returned non-finite action values.");
+            }
+
+            if (forward < 0f || forward > 1f || turn < -1f || turn > 1f)
+            {
+                throw new InvalidDataException(
+                    "ONNX policy returned action values outside the declared ranges.");
+            }
+
+            Forward = forward;
+            Turn = turn;
+        }
+
+        internal float Forward { get; }
+
+        internal float Turn { get; }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
+        }
+    }
+
     internal sealed class QuickstartOnnxPolicy : IDisposable
     {
         private InferenceSession? session;
@@ -56,7 +86,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         internal QuickstartOnnxContract Contract => contract;
 
-        internal QuickstartRawAction Run(
+        internal QuickstartPolicyAction Run(
             float[] imageObservation,
             float[] numericObservation)
         {
@@ -109,13 +139,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
                 float forward = actions.GetValue(contract.ForwardActionIndex);
                 float turn = actions.GetValue(contract.TurnActionIndex);
-                if (!IsFinite(forward) || !IsFinite(turn))
-                {
-                    throw new InvalidDataException(
-                        "ONNX policy returned non-finite action values.");
-                }
-
-                return new QuickstartRawAction(forward, turn);
+                return new QuickstartPolicyAction(forward, turn);
             }
 
             throw new InvalidDataException(
@@ -144,9 +168,5 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             return result;
         }
 
-        private static bool IsFinite(float value)
-        {
-            return !float.IsNaN(value) && !float.IsInfinity(value);
-        }
     }
 }

@@ -46,6 +46,25 @@ if (typeof(ResultDocument).GetProperty("Artifacts") is not null)
         "ResultDocument must not expose the legacy top-level Artifacts property.");
 }
 
+if (typeof(ResultArtifacts).GetProperty("SentisModel") is not null ||
+    resultDocument["result_bundle"]?["artifacts"]?["sentis_model"] is not null)
+{
+    throw new InvalidOperationException(
+        "The current result contract must not expose the removed Sentis model artifact.");
+}
+
+var legacyResultDocument = (JObject)resultDocument.DeepClone();
+((JObject)legacyResultDocument["result_bundle"]!["artifacts"]!)["sentis_model"] =
+    new JObject();
+AssertThrows<JsonSerializationException>(
+    () => JsonConvert.DeserializeObject<ResultDocument>(
+        legacyResultDocument.ToString(Formatting.None),
+        new JsonSerializerSettings
+        {
+            MissingMemberHandling = MissingMemberHandling.Error,
+        }),
+    "the removed sentis_model field");
+
 if (resultDocument.Property("artifacts") is not null)
 {
     throw new InvalidOperationException(
@@ -209,6 +228,18 @@ void ValidatePublicReplayReaders()
     if (plainSteps.Count != 2 || parsedSteps.Count != 2)
     {
         throw new InvalidOperationException("Replay readers must return two steps.");
+    }
+    ReplayLogStep initialStep = plainSteps[0];
+    if (initialStep.StepIndex != 0
+        || initialStep.TimeSeconds != 0D
+        || initialStep.Action.Values.Any(value => value.Value != 0D)
+        || initialStep.Reward.Total != 0D
+        || initialStep.Reward.Components.Count != 0
+        || initialStep.Events.Count != 0
+        || initialStep.Terminated)
+    {
+        throw new InvalidOperationException(
+            "The first Replay step must represent the reset state before any action, reward, or event.");
     }
 
     string gzipPath = Path.Combine(
@@ -419,7 +450,7 @@ void ValidateSemanticConstraints()
         ReadFixture("navigation_completed_result_document.json")) ??
         throw new InvalidOperationException("Could not read the completed result fixture.");
     wrongOpset.ResultBundle!.Artifacts!.OnnxModel!.OpsetVersion =
-        (OnnxModelArtifactLocationOpsetVersion)18;
+        (OnnxModelArtifactLocationOpsetVersion)17;
     AssertThrows<InvalidDataException>(
         () => ContractSemanticValidator.ValidateResultDocument(wrongOpset),
         "an ONNX model with a noncanonical opset");
