@@ -22,7 +22,7 @@ var tests = new (string Name, Action Run)[]
     ("ONNX contract rejected metadata", TestOnnxContractRejectedMetadata),
     ("Goal observation", TestGoalObservation),
     ("RGB vertical flip and CHW conversion", TestImageConversion),
-    ("Action contract", TestActionContract),
+    ("Policy action boundaries", TestPolicyActionBoundaries),
 };
 
 foreach ((string name, Action run) in tests)
@@ -587,6 +587,46 @@ static void TestGoalObservation()
         new[] { Values.GoalAngleDegrees, Values.GoalDistanceMeters },
         values);
     AssertNear(-55D, values[0], "wrapped negative goal angle");
+
+    QuickstartInferenceMath.WriteNumericObservation(
+        new UnityEngine.Vector3(0f, 0f, 0f),
+        180f,
+        new UnityEngine.Vector3(0f, 0f, 1f),
+        new[] { Values.GoalAngleDegrees, Values.GoalDistanceMeters },
+        values);
+    AssertNear(-180D, values[0], "negative 180-degree boundary");
+    AssertNear(1D, values[1], "boundary goal distance");
+
+    QuickstartInferenceMath.WriteNumericObservation(
+        new UnityEngine.Vector3(2f, 0f, -3f),
+        0f,
+        new UnityEngine.Vector3(2f, 0f, -3f),
+        new[] { Values.GoalAngleDegrees, Values.GoalDistanceMeters },
+        values);
+    AssertNear(0D, values[0], "zero-distance goal angle");
+    AssertNear(0D, values[1], "zero goal distance");
+
+    AssertThrows<InvalidDataException>(
+        () => QuickstartInferenceMath.WriteNumericObservation(
+            new UnityEngine.Vector3(float.NaN, 0f, 0f),
+            0f,
+            new UnityEngine.Vector3(0f, 0f, 1f),
+            new[] { Values.GoalAngleDegrees, Values.GoalDistanceMeters },
+            values));
+    AssertThrows<InvalidDataException>(
+        () => QuickstartInferenceMath.WriteNumericObservation(
+            new UnityEngine.Vector3(float.MaxValue, 0f, 0f),
+            0f,
+            new UnityEngine.Vector3(-float.MaxValue, 0f, 0f),
+            new[] { Values.GoalAngleDegrees, Values.GoalDistanceMeters },
+            values));
+    AssertThrows<InvalidDataException>(
+        () => QuickstartInferenceMath.WriteNumericObservation(
+            new UnityEngine.Vector3(0f, 0f, 0f),
+            0f,
+            new UnityEngine.Vector3(0f, 0f, 1f),
+            new[] { (Values)int.MaxValue },
+            new float[1]));
 }
 
 static void TestImageConversion()
@@ -621,29 +661,60 @@ static void TestImageConversion()
     {
         AssertNear(expected[index], destination[index], $"CHW value {index}");
     }
+
+    AssertThrows<ArgumentOutOfRangeException>(
+        () => QuickstartInferenceMath.ConvertRgbToVerticallyFlippedChw(
+            Array.Empty<UnityEngine.Color32>(),
+            0,
+            1,
+            new[] { "channel_0_unused" },
+            Array.Empty<float>()));
+    AssertThrows<ArgumentOutOfRangeException>(
+        () => QuickstartInferenceMath.ConvertRgbToVerticallyFlippedChw(
+            Array.Empty<UnityEngine.Color32>(),
+            int.MaxValue,
+            2,
+            new[] { "channel_0_unused" },
+            Array.Empty<float>()));
+    AssertThrows<ArgumentException>(
+        () => QuickstartInferenceMath.ConvertRgbToVerticallyFlippedChw(
+            source,
+            2,
+            2,
+            new[] { "channel_0_unused" },
+            destination));
+    AssertThrows<InvalidDataException>(
+        () => QuickstartInferenceMath.ConvertRgbToVerticallyFlippedChw(
+            source,
+            2,
+            2,
+            new[] { "unsupported_channel" },
+            new float[4]));
 }
 
-static void TestActionContract()
+static void TestPolicyActionBoundaries()
 {
-    QuickstartAppliedAction valid = QuickstartInferenceMath.ApplyActionContract(
-        new QuickstartRawAction(0.25f, -0.5f));
-    AssertEqual(false, valid.ContractViolation, "valid action contract");
-    AssertNear(0.25D, valid.Forward, "valid forward action");
-    AssertNear(-0.5D, valid.Turn, "valid turn action");
+    var minimum = new QuickstartPolicyAction(0f, -1f);
+    AssertNear(0D, minimum.Forward, "minimum forward action");
+    AssertNear(-1D, minimum.Turn, "minimum turn action");
 
-    QuickstartAppliedAction clamped = QuickstartInferenceMath.ApplyActionContract(
-        new QuickstartRawAction(-2f, 3f));
-    AssertEqual(true, clamped.ContractViolation, "invalid action contract");
-    AssertNear(0D, clamped.Forward, "clamped forward action");
-    AssertNear(1D, clamped.Turn, "clamped turn action");
-    if (!clamped.FormatSummary().Contains("CONTRACT VIOLATION", StringComparison.Ordinal))
-    {
-        throw new InvalidOperationException("Action violation summary is not visible.");
-    }
+    var maximum = new QuickstartPolicyAction(1f, 1f);
+    AssertNear(1D, maximum.Forward, "maximum forward action");
+    AssertNear(1D, maximum.Turn, "maximum turn action");
 
+    var interior = new QuickstartPolicyAction(0.25f, -0.5f);
+    AssertNear(0.25D, interior.Forward, "interior forward action");
+    AssertNear(-0.5D, interior.Turn, "interior turn action");
+
+    AssertThrows<InvalidDataException>(() => new QuickstartPolicyAction(-0.001f, 0f));
+    AssertThrows<InvalidDataException>(() => new QuickstartPolicyAction(1.001f, 0f));
+    AssertThrows<InvalidDataException>(() => new QuickstartPolicyAction(0f, -1.001f));
+    AssertThrows<InvalidDataException>(() => new QuickstartPolicyAction(0f, 1.001f));
+    AssertThrows<InvalidDataException>(() => new QuickstartPolicyAction(float.NaN, 0f));
     AssertThrows<InvalidDataException>(
-        () => QuickstartInferenceMath.ApplyActionContract(
-            new QuickstartRawAction(float.NaN, 0f)));
+        () => new QuickstartPolicyAction(float.PositiveInfinity, 0f));
+    AssertThrows<InvalidDataException>(
+        () => new QuickstartPolicyAction(0f, float.NegativeInfinity));
 }
 
 static ScenarioBundle CanonicalScenario()

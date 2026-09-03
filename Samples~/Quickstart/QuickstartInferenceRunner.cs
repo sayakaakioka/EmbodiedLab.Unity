@@ -169,21 +169,18 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                     contract,
                     activeNumericObservation);
 
-                QuickstartAppliedAction action =
-                    QuickstartInferenceMath.ApplyActionContract(
-                        activePolicy.Run(
-                            activeImageObservation,
-                            activeNumericObservation));
-                ActionStatus = action.FormatSummary();
+                QuickstartPolicyAction action = activePolicy.Run(
+                    activeImageObservation,
+                    activeNumericObservation);
+                ActionStatus = $"forward={action.Forward:0.000} " +
+                    $"turn={action.Turn:0.000}";
                 ApplyMotion(action);
                 if (!IsRunning)
                 {
                     return;
                 }
 
-                Status = action.ContractViolation
-                    ? "Inference: running | CONTRACT VIOLATION: action clamped."
-                    : "Inference: running.";
+                Status = "Inference: running.";
             }
             catch (Exception exception)
             {
@@ -194,7 +191,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             }
         }
 
-        private void ApplyMotion(QuickstartAppliedAction action)
+        private void ApplyMotion(QuickstartPolicyAction action)
         {
             robot.Rotate(
                 0f,

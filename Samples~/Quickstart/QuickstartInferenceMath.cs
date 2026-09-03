@@ -8,55 +8,6 @@ using UnityEngine;
 
 namespace EmbodiedLab.Unity.Samples.Quickstart
 {
-    internal readonly struct QuickstartRawAction
-    {
-        internal QuickstartRawAction(float forward, float turn)
-        {
-            Forward = forward;
-            Turn = turn;
-        }
-
-        internal float Forward { get; }
-
-        internal float Turn { get; }
-    }
-
-    internal readonly struct QuickstartAppliedAction
-    {
-        internal QuickstartAppliedAction(
-            float rawForward,
-            float rawTurn,
-            float forward,
-            float turn,
-            bool contractViolation)
-        {
-            RawForward = rawForward;
-            RawTurn = rawTurn;
-            Forward = forward;
-            Turn = turn;
-            ContractViolation = contractViolation;
-        }
-
-        internal float RawForward { get; }
-
-        internal float RawTurn { get; }
-
-        internal float Forward { get; }
-
-        internal float Turn { get; }
-
-        internal bool ContractViolation { get; }
-
-        internal string FormatSummary()
-        {
-            string violation = ContractViolation
-                ? " | CONTRACT VIOLATION: action clamped"
-                : string.Empty;
-            return $"raw f={RawForward:0.000} t={RawTurn:0.000} | " +
-                $"applied f={Forward:0.000} t={Turn:0.000}{violation}";
-        }
-    }
-
     internal static class QuickstartInferenceMath
     {
         internal static void WriteNumericObservation(
@@ -78,6 +29,16 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                     nameof(destination));
             }
 
+            if (!IsFinite(robotPosition.x) ||
+                !IsFinite(robotPosition.z) ||
+                !IsFinite(robotYawDegrees) ||
+                !IsFinite(goalPosition.x) ||
+                !IsFinite(goalPosition.z))
+            {
+                throw new InvalidDataException(
+                    "Robot and goal observation values must be finite.");
+            }
+
             float deltaX = goalPosition.x - robotPosition.x;
             float deltaZ = goalPosition.z - robotPosition.z;
             float targetDegrees = Mathf.Atan2(deltaX, deltaZ) * Mathf.Rad2Deg;
@@ -85,6 +46,12 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 targetDegrees - robotYawDegrees + 180f,
                 360f) - 180f;
             float goalDistanceMeters = Mathf.Sqrt(deltaX * deltaX + deltaZ * deltaZ);
+            if (!IsFinite(goalAngleDegrees) || !IsFinite(goalDistanceMeters))
+            {
+                throw new InvalidDataException(
+                    "Computed goal observation values must be finite.");
+            }
+
             for (int index = 0; index < values.Count; index++)
             {
                 destination[index] = values[index] switch
@@ -104,7 +71,33 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             IReadOnlyList<string> channelLayout,
             float[] destination)
         {
-            if (source == null || source.Length != width * height)
+            if (width <= 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(width),
+                    "RGB width must be positive.");
+            }
+
+            if (height <= 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(height),
+                    "RGB height must be positive.");
+            }
+
+            int planeSize;
+            try
+            {
+                planeSize = checked(width * height);
+            }
+            catch (OverflowException)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(width),
+                    "RGB dimensions are too large.");
+            }
+
+            if (source == null || source.Length != planeSize)
             {
                 throw new ArgumentException(
                     "RGB source size does not match its dimensions.",
@@ -116,9 +109,20 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 throw new ArgumentNullException(nameof(channelLayout));
             }
 
-            int planeSize = width * height;
+            int requiredValues;
+            try
+            {
+                requiredValues = checked(planeSize * channelLayout.Count);
+            }
+            catch (OverflowException)
+            {
+                throw new ArgumentException(
+                    "CHW channel layout is too large.",
+                    nameof(channelLayout));
+            }
+
             if (destination == null ||
-                destination.Length != planeSize * channelLayout.Count)
+                destination.Length != requiredValues)
             {
                 throw new ArgumentException(
                     "CHW destination must match the declared channel layout.",
@@ -147,29 +151,6 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                     }
                 }
             }
-        }
-
-        internal static QuickstartAppliedAction ApplyActionContract(
-            QuickstartRawAction rawAction)
-        {
-            if (!IsFinite(rawAction.Forward) || !IsFinite(rawAction.Turn))
-            {
-                throw new InvalidDataException(
-                    "ONNX policy returned non-finite action values.");
-            }
-
-            float forward = Mathf.Clamp01(rawAction.Forward);
-            float turn = Mathf.Clamp(rawAction.Turn, -1f, 1f);
-            bool violation = rawAction.Forward < 0f ||
-                rawAction.Forward > 1f ||
-                rawAction.Turn < -1f ||
-                rawAction.Turn > 1f;
-            return new QuickstartAppliedAction(
-                rawAction.Forward,
-                rawAction.Turn,
-                forward,
-                turn,
-                violation);
         }
 
         private static bool IsFinite(float value)

@@ -161,8 +161,9 @@ Read the inference files in this order:
    order from the Scenario and downloaded model metadata, then checks the ONNX
    session against them.
 2. `QuickstartSemanticCamera.cs` captures the submitted semantic camera.
-3. `QuickstartInferenceMath.cs` creates observations and clamps actions.
-4. `QuickstartOnnxPolicy.cs` owns one cached ONNX session.
+3. `QuickstartInferenceMath.cs` creates the declared observations.
+4. `QuickstartOnnxPolicy.cs` owns one cached ONNX session and rejects action
+   values outside the declared ranges.
 5. `QuickstartInferenceRunner.cs` applies decisions to the shared robot.
 
 Replay and inference are mutually exclusive. Starting one stops the other, and

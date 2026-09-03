@@ -269,13 +269,11 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests
             OnnxModelArtifactLocation modelContract = LoadOnnxModelContract();
             var policy = new QuickstartOnnxPolicy(path, scenario, modelContract);
             QuickstartOnnxContract contract = policy.Contract;
-            QuickstartRawAction action = policy.Run(
+            QuickstartPolicyAction action = policy.Run(
                 new float[contract.ImageValueCount],
                 new float[contract.NumericValueCount]);
-            Assert.That(float.IsNaN(action.Forward), Is.False);
-            Assert.That(float.IsInfinity(action.Forward), Is.False);
-            Assert.That(float.IsNaN(action.Turn), Is.False);
-            Assert.That(float.IsInfinity(action.Turn), Is.False);
+            Assert.That(action.Forward, Is.InRange(0f, 1f));
+            Assert.That(action.Turn, Is.InRange(-1f, 1f));
 
             policy.Dispose();
             Assert.Throws<ObjectDisposedException>(
@@ -325,7 +323,10 @@ namespace EmbodiedLab.Unity.Samples.Quickstart.Imported.Tests
                 runner.ObservationStatus,
                 Does.StartWith("angle="),
                 runner.Status);
-            Assert.That(runner.ActionStatus, Does.StartWith("raw f="), runner.Status);
+            Assert.That(
+                runner.ActionStatus,
+                Does.StartWith("forward="),
+                runner.Status);
 
             runner.Stop();
             Assert.That(runner.IsRunning, Is.False);
