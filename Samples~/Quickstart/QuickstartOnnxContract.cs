@@ -125,7 +125,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
             if (model.Format != OnnxModelArtifactLocationFormat.Onnx ||
                 model.Target != OnnxModelArtifactLocationTarget.OnnxRuntime ||
-                model.OpsetVersion != OnnxModelArtifactLocationOpsetVersion._17)
+                model.OpsetVersion != OnnxModelArtifactLocationOpsetVersion._18)
             {
                 throw new InvalidDataException(
                     "The downloaded model metadata is not the supported ONNX contract.");

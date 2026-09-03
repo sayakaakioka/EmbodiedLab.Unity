@@ -555,7 +555,7 @@ static void TestOnnxContractRejectedMetadata()
             new[] { Tensor("action", true, -1, 2) }));
 
     model = CanonicalOnnxModel();
-    model.OpsetVersion = (OnnxModelArtifactLocationOpsetVersion)18;
+    model.OpsetVersion = (OnnxModelArtifactLocationOpsetVersion)17;
     AssertThrows<InvalidDataException>(
         () => QuickstartOnnxContract.Validate(
             scenario,

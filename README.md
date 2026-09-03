@@ -32,7 +32,7 @@ Server behavior and the source contract models remain in
 Direct ONNX inference in the tutorial is verified with Unity 2022.3.19f1 and
 6000.3.11f1 on Windows x64 Editor and Windows x64 Standalone. The package owns
 the required CPU ONNX Runtime 1.24.4 managed and native binaries; no separate
-ONNX Runtime or Sentis installation is required on that target.
+ONNX Runtime installation is required on that target.
 
 ## Installation
 

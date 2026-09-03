@@ -54,7 +54,20 @@ namespace EmbodiedLab.Unity.Tests
             Assert.That(
                 typeof(ResultDocument).GetProperty("Artifacts"),
                 Is.Null);
+            Assert.That(
+                typeof(ResultArtifacts).GetProperty("SentisModel"),
+                Is.Null);
             Assert.That(documentJson.Property("artifacts"), Is.Null);
+            Assert.That(
+                documentJson["result_bundle"]?["artifacts"]?["sentis_model"],
+                Is.Null);
+            var legacyDocumentJson = (JObject)documentJson.DeepClone();
+            ((JObject)legacyDocumentJson["result_bundle"]!["artifacts"]!)["sentis_model"] =
+                new JObject();
+            Assert.Throws<JsonSerializationException>(
+                () => JsonConvert.DeserializeObject<ResultDocument>(
+                    legacyDocumentJson.ToString(Formatting.None),
+                    SerializerSettings));
             Assert.That(
                 documentJson["result_bundle"]?["artifacts"],
                 Is.Not.Null);

@@ -39,8 +39,8 @@ Scenario / Result / Replay の通信、ジョブ lifecycle、artifact download �
 - v0 snapshot は6 schemaで、各 byte digest と upstream commit を記録する。
 - reward component は定義済み7要素をすべて明示する。
 - Result Bundle の `observation_layout` は `obs_0` / `obs_1` である。
-- 通常 ONNX は2 input、Sentis ONNX は固定長1 input で、どちらも
-  `inputs` 配列と output metadata を持つ。
+- `onnx_model` は camera と goal vector の2 input、および output metadata を持つ。
+- `sentis_model` や model-format fallback は現行契約に含まれない。
 
 ## 3. 公開 API とジョブ lifecycle を確認する（15分）
 

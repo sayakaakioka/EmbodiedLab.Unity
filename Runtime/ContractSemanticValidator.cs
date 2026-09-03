@@ -261,7 +261,6 @@ namespace EmbodiedLab.Unity.Internal
                     if (bundle.Summary == null ||
                         bundle.Error != null ||
                         artifacts.OnnxModel == null ||
-                        artifacts.SentisModel == null ||
                         artifacts.ReplayBundle == null)
                     {
                         throw new InvalidDataException(
@@ -275,12 +274,6 @@ namespace EmbodiedLab.Unity.Internal
                         artifacts.OnnxModel.Sha256,
                         "ONNX model");
                     ValidateArtifact(
-                        artifacts.SentisModel.Bucket,
-                        artifacts.SentisModel.Path,
-                        artifacts.SentisModel.SizeBytes,
-                        artifacts.SentisModel.Sha256,
-                        "Sentis model");
-                    ValidateArtifact(
                         artifacts.ReplayBundle.Bucket,
                         artifacts.ReplayBundle.Path,
                         artifacts.ReplayBundle.SizeBytes,
@@ -289,7 +282,6 @@ namespace EmbodiedLab.Unity.Internal
                     ValidateCompatibility(bundle.Compatibility);
                     ValidateTrainingSummary(bundle.Summary);
                     ValidateOnnxModel(artifacts.OnnxModel);
-                    ValidateSentisModel(artifacts.SentisModel);
                     if (artifacts.ReplayBundle.Storage != ArtifactStorage.Gcs ||
                         artifacts.ReplayBundle.Format != ArtifactLocationFormat.Json)
                     {
@@ -302,7 +294,6 @@ namespace EmbodiedLab.Unity.Internal
                     if (bundle.Summary != null ||
                         bundle.Error == null ||
                         artifacts.OnnxModel != null ||
-                        artifacts.SentisModel != null ||
                         artifacts.ReplayBundle != null)
                     {
                         throw new InvalidDataException(
@@ -350,27 +341,13 @@ namespace EmbodiedLab.Unity.Internal
             if (model.Storage != ArtifactStorage.Gcs ||
                 model.Format != OnnxModelArtifactLocationFormat.Onnx ||
                 model.Target != OnnxModelArtifactLocationTarget.OnnxRuntime ||
-                model.OpsetVersion != OnnxModelArtifactLocationOpsetVersion._17)
+                model.OpsetVersion != OnnxModelArtifactLocationOpsetVersion._18)
             {
                 throw new InvalidDataException(
                     "ONNX model storage, format, target, or opset is invalid.");
             }
 
             ValidateModelMetadata(model.Inputs, model.Output, "ONNX model");
-        }
-
-        private static void ValidateSentisModel(SentisModelArtifactLocation model)
-        {
-            if (model.Storage != ArtifactStorage.Gcs ||
-                model.Format != SentisModelArtifactLocationFormat.Onnx ||
-                model.Target != SentisModelArtifactLocationTarget.UnitySentis ||
-                model.OpsetVersion != SentisModelArtifactLocationOpsetVersion._15)
-            {
-                throw new InvalidDataException(
-                    "Sentis model storage, format, target, or opset is invalid.");
-            }
-
-            ValidateModelMetadata(model.Inputs, model.Output, "Sentis model");
         }
 
         private static void ValidateModelMetadata(

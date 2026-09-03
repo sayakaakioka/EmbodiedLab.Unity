@@ -617,6 +617,18 @@ SDK 利用実装への全面移行は第二段階とする。
 - train／eval Replay chunk を派生型として扱い、phase 固有 metadata を sample と test から
   基底型の property として参照しない構造へ移行した。
 
+### 2026-09-03 現行 EmbodiedLab 契約への同期
+
+- EmbodiedLab revision `c1cf5b74c52d8de70e118c0c06c70f1c6c79b260` の6 schema と
+  canonical fixture を provenance 付きで同期した。
+- `sentis_model` を Result contract、生成 DTO、semantic validator、fixture、test から削除し、
+  完了時の model artifact を opset 18 の `onnx_model` 一つに限定した。旧 field や opset 17 の
+  compatibility layer は残さない。
+- `forward_step_meters` の上限 10 meter と、client-generated `cancel_token` の現行制約を schema
+  snapshot へ反映した。
+- 各 Replay episode の step 0 を action 適用前の reset state とし、zero action、zero reward、
+  event なしを記録する現行 producer semantics を fixture と contract test に同期した。
+
 公開 API の immutable snapshot、共有 completion monitor、型付き download result、
 Replay timeline／Unity player、world／observation／policy API への本格的な切り出しと、
 それらを使う tutorial の再構成は引き続き次の実装単位とする。

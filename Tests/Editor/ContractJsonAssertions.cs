@@ -287,10 +287,6 @@ namespace EmbodiedLab.Unity.Tests
                             {
                                 ["not"] = new JObject { ["type"] = "null" },
                             },
-                            ["sentis_model"] = new JObject
-                            {
-                                ["not"] = new JObject { ["type"] = "null" },
-                            },
                         },
                     }),
                     ("error", new JObject { ["type"] = "null" }),
@@ -306,7 +302,6 @@ namespace EmbodiedLab.Unity.Tests
                         {
                             ["onnx_model"] = new JObject { ["type"] = "null" },
                             ["replay_bundle"] = new JObject { ["type"] = "null" },
-                            ["sentis_model"] = new JObject { ["type"] = "null" },
                         },
                     }),
                     ("error", new JObject
