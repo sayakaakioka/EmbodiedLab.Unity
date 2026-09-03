@@ -38,34 +38,31 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
         };
 
         private QuickstartOnnxContract(
-            ForwardCameraSensor cameraSensor,
-            GoalVectorSensor goalVectorSensor,
+            int imageHeight,
+            int imageWidth,
             ModelInput imageInput,
             int[] imageDimensions,
             ModelInput numericInput,
             int[] numericDimensions,
+            Values[] numericValues,
             string outputName,
             int actionValueCount,
             int forwardActionIndex,
             int turnActionIndex)
         {
-            CameraSensor = cameraSensor;
-            GoalVectorSensor = goalVectorSensor;
+            ImageHeight = imageHeight;
+            ImageWidth = imageWidth;
             ImageInputName = imageInput.Name;
             ImageDimensions = imageDimensions;
             ImageChannelLayout = imageInput.Layout.ToArray();
             NumericInputName = numericInput.Name;
             NumericDimensions = numericDimensions;
-            NumericValues = goalVectorSensor.Values.ToArray();
+            NumericValues = numericValues;
             OutputName = outputName;
             ActionValueCount = actionValueCount;
             ForwardActionIndex = forwardActionIndex;
             TurnActionIndex = turnActionIndex;
         }
-
-        internal ForwardCameraSensor CameraSensor { get; }
-
-        internal GoalVectorSensor GoalVectorSensor { get; }
 
         internal string ImageInputName { get; }
 
@@ -75,9 +72,9 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         internal int ImageChannels => ImageChannelLayout.Count;
 
-        internal int ImageHeight => CameraSensor.Height;
+        internal int ImageHeight { get; }
 
-        internal int ImageWidth => CameraSensor.Width;
+        internal int ImageWidth { get; }
 
         internal int ImageValueCount => checked(ImageChannels * ImageHeight * ImageWidth);
 
@@ -149,7 +146,6 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             ModelInput numericInput = RequireModelInput(
                 model.Inputs,
                 goalVectorSensor.ObservationName);
-            ValidateImageLayout(imageInput.Layout);
             string[] numericLayout = goalVectorSensor.Values
                 .Select(ToWireValue)
                 .ToArray();
@@ -217,12 +213,13 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             }
 
             return new QuickstartOnnxContract(
-                cameraSensor,
-                goalVectorSensor,
+                cameraSensor.Height,
+                cameraSensor.Width,
                 imageInput,
                 imageDimensions,
                 numericInput,
                 numericDimensions,
+                goalVectorSensor.Values.ToArray(),
                 output.Name,
                 actionLayout.Length,
                 forwardIndex,
@@ -331,17 +328,6 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             }
 
             return declaredShape;
-        }
-
-        private static void ValidateImageLayout(ICollection<string> layout)
-        {
-            if (layout == null ||
-                layout.Count != 3 ||
-                layout.Distinct(StringComparer.Ordinal).Count() != layout.Count)
-            {
-                throw new InvalidDataException(
-                    "Semantic camera model metadata must declare three unique channels.");
-            }
         }
 
         private static void RequireExactLayout(
