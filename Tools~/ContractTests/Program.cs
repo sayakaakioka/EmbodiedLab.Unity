@@ -210,6 +210,18 @@ void ValidatePublicReplayReaders()
     {
         throw new InvalidOperationException("Replay readers must return two steps.");
     }
+    ReplayLogStep initialStep = plainSteps[0];
+    if (initialStep.StepIndex != 0
+        || initialStep.TimeSeconds != 0D
+        || initialStep.Action.Values.Any(value => value.Value != 0D)
+        || initialStep.Reward.Total != 0D
+        || initialStep.Reward.Components.Count != 0
+        || initialStep.Events.Count != 0
+        || initialStep.Terminated)
+    {
+        throw new InvalidOperationException(
+            "The first Replay step must represent the reset state before any action, reward, or event.");
+    }
 
     string gzipPath = Path.Combine(
         Path.GetTempPath(),

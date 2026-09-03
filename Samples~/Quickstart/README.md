@@ -146,7 +146,8 @@ position and yaw to the same visible robot.
 
 Playback follows each step's `time_seconds`, interpolates only consecutive
 steps in the same episode, pauses briefly at episode boundaries, and resets to
-the first step when stopped.
+the first step when stopped. Step 0 is the episode reset state with zero action,
+zero reward, and no event; the state after the first applied action is step 1.
 
 ## 6. Run the policy on Windows x64
 

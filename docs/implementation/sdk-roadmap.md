@@ -241,7 +241,7 @@ SDK 利用実装への全面移行は第二段階とする。
   step 数 100,000 までに制限
 - replay log は展開後 256 MiB、UTF-8 JSONL 1行 1 MiB、返却 step 数 100,000
   までに制限
-- backend は `eval_episodes * max_episode_steps <= 100000` を検証し、deterministic
+- backend は `eval_episodes * (max_episode_steps + 1) <= 100000` を検証し、deterministic
   evaluation を SDK が読める一つの chunk に収める
 - backend は Replay JSONL を書く前に各行を検証し、manifest と同じ
   `scenario_id` / `job_id` を必ず付与する
@@ -257,6 +257,8 @@ SDK 利用実装への全面移行は第二段階とする。
 - canonical な `EmbodiedLabReplay.ReadManifest` と `ReadSteps` を使い、manifest と
   chunk のローカル path を sample-local history に保存
 - canonical world と同じ robot へ replay の X/Z 座標と yaw を適用
+- 各 episode の step 0 を action 適用前の reset state とし、zero action／zero reward／
+  event なしを記録する。最初の action 適用後の状態は step 1 とする
 - `time_seconds` に従う同一 episode 内補間、episode 境界の短い pause、および
   Stop 時の最初の step への reset
 - history 選択、world 再構築、Play Mode 終了、別モード開始時の playback 停止

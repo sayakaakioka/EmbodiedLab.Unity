@@ -86,6 +86,8 @@ terminal state を古い更新で巻き戻さないことを確認する。
 manifest、chunk path、compressed/decompressed byte、1行、step 数の上限が
 固定 invariant であることを確認する。Replay 行の `scenario_id` と `job_id` が
 選択中の job と一致しない場合に拒否する経路も確認する。
+各 episode の step 0 は action 適用前の reset state で、action と reward はゼロ、event は
+空である。最初の action 適用後の状態は step 1 になることも確認する。
 
 Result JSON は transport、Replay manifest／row は `EmbodiedLabReplay` が構造に加えて
 状態間 invariant を検証する。`ScenarioBundleJson` は構造的 deserialize を担当し、
