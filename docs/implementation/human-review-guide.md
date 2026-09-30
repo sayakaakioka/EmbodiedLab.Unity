@@ -47,13 +47,18 @@ Scenario / Result / Replay の通信、ジョブ lifecycle、artifact download �
 次を読む。
 
 1. `Runtime/EmbodiedLabJob.cs`
-2. `Runtime/EmbodiedLabEndpoints.cs`
-3. `Runtime/EmbodiedLabReplay.cs`
+2. `Runtime/ResultSnapshot.cs`
+3. `Runtime/EmbodiedLabEndpoints.cs`
+4. `Runtime/EmbodiedLabReplay.cs`
 
 `SubmitAsync`、`Restore`、`RefreshAsync`、`WaitForCompletionAsync`、
 `CancelAsync`、model/replay download の順に追う。ローカル
 `CancellationToken` と cloud cancel capability が別物であること、
 terminal state を古い更新で巻き戻さないことを確認する。
+複数 caller が一つの monitor を共有し、caller の待機中止では監視を止めないこと、
+`StopMonitoringAsync` と `Dispose` は cloud cancel を送らないことも確認する。
+結果は immutable snapshot であり、`ToDocument()` の nested wire copy を変更しても
+job の状態や他 consumer の snapshot を変更できない。
 
 ## 4. Transport と失敗時の復旧を確認する（15分）
 

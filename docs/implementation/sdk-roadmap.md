@@ -579,7 +579,7 @@ SDK 利用実装への全面移行は第二段階とする。
 ## 次の段階
 
 1. EnvForge の fixture と package revision を確定した contract へ同期する。
-2. immutable job snapshot、型付き artifact result、Replay timeline／Unity player、
+2. 型付き artifact result、Replay timeline／Unity player、
    world／observation／policy の最小公開 API を責務ごとに切り出し、tutorial をその API で
    書き直す。
 3. 第二段階として EnvForge の cloud job、Replay、local inference を SDK 公開 API 利用へ
@@ -629,7 +629,7 @@ SDK 利用実装への全面移行は第二段階とする。
 - 各 Replay episode の step 0 を action 適用前の reset state とし、zero action、zero reward、
   event なしを記録する現行 producer semantics を fixture と contract test に同期した。
 
-公開 API の immutable snapshot、共有 completion monitor、型付き download result、
+この時点では公開 API の immutable snapshot、共有 completion monitor、型付き download result、
 Replay timeline／Unity player、world／observation／policy API への本格的な切り出しと、
 それらを使う tutorial の再構成は引き続き次の実装単位とする。
 
@@ -672,3 +672,76 @@ python3 Tools~/run_unity_standalone_smoke.py \
   --policy <path-to-policy.onnx> --output-directory <temporary-output>
 git diff --check
 ```
+
+### 2026-09-30 job lifecycle の実装
+
+- `EmbodiedLabJob` が一つの monitor を所有し、複数の completion caller が共有する。
+  caller の token は自身の待機だけを止め、最後の caller が離れても monitor は維持する。
+- `StopMonitoringAsync` は local monitor の終了を待ち、pending wait を中止する。
+  最新結果は保持し、終了を待ってから再度 wait すると監視を再開できる。
+  `Dispose` は local resource 解放のみで、cloud cancellation は `CancelAsync` に限定する。
+- 最新結果、event、refresh、cancel、completion は immutable `ResultSnapshot` を返す。
+  progress も immutable とし、ネストした wire data は明示的な `ToDocument()` で独立した
+  deep copy として取得する。型付き artifact result の抽出は今回の範囲に含めない。
+- job 作成時の SynchronizationContext への通知、context 不在時の publisher thread、
+  dispose 後の queued event 抑止を XML documentation と behavior test に記録する。
+- Quickstart は新しい snapshot と待機キャンセルの意味へ必要範囲で追従する。
+  全面的な tutorial 再構成、PolicySession／navigation／sensing、EnvForge pin 更新は後続とする。
+
+検証結果（2026-09-30）:
+
+- `dotnet run --project Tools~/TransportTests/TransportTests.csproj --configuration Release --no-restore`:
+  41件成功（変更前の基準は32件）。共有待機、全 caller 離脱後の監視、local stop／再開／dispose、
+  HTTP terminal、snapshot の深い所有権、通知 context、monitor failure／再試行を検証した。
+- `dotnet run --project Tools~/QuickstartTests/QuickstartTests.csproj --configuration Release --no-restore`:
+  18件成功。
+- `dotnet run --project Tools~/ContractTests/ContractTests.csproj --configuration Release --no-restore -- Tests~/Fixtures`:
+  canonical contract、persistence API、Replay 2 step の検証成功。
+- `dotnet build Tools~/TransportCompatibility/TransportCompatibility.csproj --configuration Release --no-restore`:
+  netstandard2.1 と全 Quickstart source の build 成功、warning／error とも0。
+- 5 tooling project の `dotnet format --verify-no-changes --no-restore` 成功。
+- WSL Python 3.12.3 の `python3 -m unittest discover -s Tools~/tests -p 'test_*.py'`: 32件成功。
+- `git diff --check`: 成功。
+- Unity 2022.3.19f1 と 6000.3.11f1 は既存 `run_unity_tests.py` で各1回試行したが、
+  `No valid Unity Editor license found` によりテスト開始前に終了した（exit 1／198）。
+  Editor／imported-sample test は未実行扱いとし、ライセンス復旧後に再実行する。
+- 変更した Editor job test は既存 NUnit DLL を使う一時 .NET project で compile と XML documentation
+  検査を通した。ただし実行は Unity 同梱 NUnit の旧 .NET Remoting 依存により停止し、成功件数には含めない。
+- 実 ONNX Editor／Standalone smoke、実 cloud E2E は未実行。Python source は変更していないため
+  Ruff は今回未実行。EnvForge pin、backend contract、schema／canonical fixture は変更していない。
+
+### 同日の独立レビューと追検証
+
+- monitor failure の通知が cleanup より先行すると、即時 retry が旧 faulted monitor を
+  再利用する競合を修正した。参照解除と failure 確定を同じ lock 内で順序付け、
+  retry test から事前の Stop 呼び出しを除去した。
+- captured context 上の新しい inline event より後に古い queued event が届く場合を修正した。
+  最新 snapshot に置き換わった queued event は抑止し、回帰 test を追加した。
+- caller cancellation と completion、Stop と Dispose の競合を各32回並行実行する
+  behavior test を追加し、全41件を成功させた。キャンセルが待機の復帰前に観測された場合は
+  その caller のキャンセルを優先する。他 caller と共有 monitor の完了には影響させない。
+- event handler の例外が監視へ影響しないという不正確な XML 説明を修正した。
+  handler はthrow/blockしない契約であり、例外は通知thread上で伝播して監視へ影響し得る。
+- 独立した読み取り専用の再レビューで、修正箇所に重大な追加問題は指摘されなかった。
+- 互換性: LatestResult／ResultUpdated／WaitForCompletionAsync／RefreshAsync／CancelAsync の
+  型は ResultSnapshot に変わるため source／binary compatibility は維持しない。
+  DTOが必要な利用側は明示的な ToDocument() に移行する。EnvForge のpinは変更していない。
+- Unity起動ログの token unavailable／license not found は自動テスト起動時の事実であり、
+  Hubログイン状態や購入の必要性を確定するものではない。sayakとして既存runnerをWSL経由で
+  batchmode/nographics起動した。根本原因は未確定で、認証操作や設定変更は行っていない。
+
+### 同日・Unity再ログイン後の最終検証（前記の実行制約を更新）
+
+- Unity 2022.3.19f1 と 6000.3.11f1 の既存 `run_unity_tests.py` を再実行し、
+  最終コードで各23件成功、failed／skipped／inconclusive は0件だった。
+- 両検証projectは `com.embodiedlab.unity: file:../../..` で現在のcheckoutを参照する。
+  compiler入力にも現在の `Runtime/ResultSnapshot.cs` が含まれることを確認した。
+  Quickstartはrunnerで現行sourceを毎回stageし、6.3実行中に全41ファイルのhash一致を確認した。
+  新規snapshot／pre-cancelled wait／local stopテストも両Editorの結果XMLでPassedを確認した。
+- 2022.3初回はimport更新中にsnapshot型未検出のcompile errorが出たが、source変更なしの
+  再実行で解消した。その後、新規async Taskテストが旧Unity NUnit runnerでNotRunnableとなったため、
+  通信を行わない即時完了テストを既存と同じ同期形式へ修正した。修正後に両版を再検証した。
+- 修正テストの `dotnet format --verify-no-changes --include` と `git diff --check` も成功した。
+- 起動はbatchmode／nographicsで、実policyは指定していない。このため実ONNXのgraphics付き
+  Editor推論、Standalone smoke、実cloud E2Eは引き続き未実行であり、今回の23件成功には含めない。
+- 認証・ライセンス設定、追加インストール、SDK参照更新、公開操作は行っていない。

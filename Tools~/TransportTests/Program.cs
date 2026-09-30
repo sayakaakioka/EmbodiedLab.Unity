@@ -42,7 +42,16 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Facade model selection", TestFacadeModelSelectionAsync),
     ("Facade model fallback rejection", TestFacadeRejectsModelFallbackAsync),
     ("Facade replay chunk", TestFacadeReplayChunkAsync),
-    ("Single completion monitor", TestConcurrentCompletionMonitorIsRejectedAsync),
+    ("Shared completion monitor", TestSharedCompletionMonitorAsync),
+    ("Caller cancellation/completion race", TestCallerCancellationCompletionRaceAsync),
+    ("Stop/dispose race", TestStopDisposeRaceAsync),
+    ("Monitor with no waiters", TestMonitorSurvivesAllWaitersAsync),
+    ("Stop restart and dispose", TestStopRestartAndDisposeAsync),
+    ("HTTP terminal completes waiters", TestHttpTerminalCompletesWaitersAsync),
+    ("Immutable result snapshot", TestImmutableResultSnapshotAsync),
+    ("Notification context", TestNotificationContextAsync),
+    ("Superseded queued notification", TestSupersededNotificationAsync),
+    ("Monitor failure and retry", TestMonitorFailureAndRetryAsync),
 };
 
 foreach ((string name, Func<Task> run) in tests)
@@ -853,9 +862,9 @@ static async Task TestStatefulFacadeAsync()
     var statuses = new List<ResultStatus>();
     job.ResultUpdated += result => statuses.Add(result.Status);
 
-    ResultDocument refreshed = await job.RefreshAsync();
-    ResultDocument cancelled = await job.CancelAsync();
-    ResultDocument rejectedRollback = await job.RefreshAsync();
+    ResultSnapshot refreshed = await job.RefreshAsync();
+    ResultSnapshot cancelled = await job.CancelAsync();
+    ResultSnapshot rejectedRollback = await job.RefreshAsync();
 
     AssertEqual(ResultStatus.Running, refreshed.Status, "facade refreshed status");
     AssertEqual(ResultStatus.Cancelled, cancelled.Status, "facade cancelled status");
@@ -909,8 +918,8 @@ static async Task TestStaleResultUpdatesAreRejectedAsync()
     var statuses = new List<ResultStatus>();
     job.ResultUpdated += result => statuses.Add(result.Status);
 
-    ResultDocument current = await job.RefreshAsync();
-    ResultDocument stale = await job.RefreshAsync();
+    ResultSnapshot current = await job.RefreshAsync();
+    ResultSnapshot stale = await job.RefreshAsync();
 
     AssertEqual(ResultStatus.Running, current.Status, "current result status");
     AssertEqual(ResultStatus.Running, stale.Status, "returned stale result replacement");
@@ -942,7 +951,7 @@ static async Task TestTerminalResultEnrichmentAsync()
         synchronizationContext: null);
 
     await job.RefreshAsync();
-    ResultDocument enriched = await job.RefreshAsync();
+    ResultSnapshot enriched = await job.RefreshAsync();
 
     AssertEqual("2026-07-20T03:00:00Z", enriched.UpdatedAt, "terminal enrichment timestamp");
     AssertEqual("2026-07-20T03:00:00Z", job.LatestResult?.UpdatedAt, "latest enrichment");
@@ -1162,45 +1171,278 @@ static byte[] GzipUtf8(string value)
     return destination.ToArray();
 }
 
-static async Task TestConcurrentCompletionMonitorIsRejectedAsync()
+static async Task TestCallerCancellationCompletionRaceAsync()
 {
-    var handler = new RecordingHttpHandler(
-        request => throw new InvalidOperationException($"Unexpected request: {request.Uri}"));
-    var socket = new ScriptedWebSocket(
-        new[] { TextFrame("""{"type":"connected","submission_id":"submission-1"}""") },
-        blockAfterFrames: true);
-    using var job = new EmbodiedLabJob(
-        CreateTransport(handler, new QueueWebSocketFactory(socket)),
-        "submission-1",
-        "navigation_default",
-        "capability-1",
-        synchronizationContext: null);
+    for (int iteration = 0; iteration < 32; iteration++)
+    {
+        var socket = new ControlledWebSocket();
+        var factory = new QueueWebSocketFactory(socket);
+        using var job = new EmbodiedLabJob(CreateTransport(ResultHandler("completed"), factory),
+            "submission-1", "navigation_default", null, null);
+        using var cancellation = new CancellationTokenSource();
+        Task<ResultSnapshot> local = job.WaitForCompletionAsync(cancellation.Token);
+        Task<ResultSnapshot> survivor = job.WaitForCompletionAsync();
+        await socket.Receiving.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.WhenAll(Task.Run(() => cancellation.Cancel()),
+            Task.Run(() => socket.Send(ResultJson("completed"))));
+        try
+        {
+            AssertEqual(ResultStatus.Completed, (await local.WaitAsync(TimeSpan.FromSeconds(5))).Status,
+                "completed local wait in race");
+        }
+        catch (OperationCanceledException exception)
+        {
+            AssertEqual(cancellation.Token, exception.CancellationToken, "only caller token cancels this wait");
+        }
+
+        AssertEqual(ResultStatus.Completed, (await survivor.WaitAsync(TimeSpan.FromSeconds(5))).Status,
+            "other caller completes despite cancellation race");
+        AssertEqual(1, factory.CreatedCount, "race does not duplicate monitor");
+        await socket.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+}
+
+static async Task TestStopDisposeRaceAsync()
+{
+    for (int iteration = 0; iteration < 32; iteration++)
+    {
+        var socket = new ControlledWebSocket();
+        var handler = ResultHandler("running");
+        using var job = new EmbodiedLabJob(CreateTransport(handler, new QueueWebSocketFactory(socket)),
+            "submission-1", "navigation_default", "capability-1", null);
+        Task<ResultSnapshot> wait = job.WaitForCompletionAsync();
+        await socket.Receiving.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Task stop = Task.Run(async () =>
+        {
+            try
+            {
+                await job.StopMonitoringAsync();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Dispose won the race before Stop acquired the job lock.
+            }
+        });
+        await Task.WhenAll(stop, Task.Run(() => job.Dispose())).WaitAsync(TimeSpan.FromSeconds(5));
+        await AssertThrowsAsync<OperationCanceledException>(() => wait.WaitAsync(TimeSpan.FromSeconds(5)));
+        await socket.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await AssertThrowsAsync<ObjectDisposedException>(() => job.WaitForCompletionAsync());
+        AssertEqual(0, handler.Requests.Count, "stop/dispose race does not cancel cloud job");
+    }
+}
+
+static async Task TestSharedCompletionMonitorAsync()
+{
+    var handler = ResultHandler("completed");
+    var socket = new ControlledWebSocket();
+    var factory = new QueueWebSocketFactory(socket);
+    using var job = new EmbodiedLabJob(CreateTransport(handler, factory),
+        "submission-1", "navigation_default", "capability-1", null);
     using var cancellation = new CancellationTokenSource();
-    var firstMonitor = job.WaitForCompletionAsync(cancellation.Token);
-    bool concurrentMonitorRejected = false;
-
-    try
-    {
-        await job.WaitForCompletionAsync();
-    }
-    catch (InvalidOperationException)
-    {
-        concurrentMonitorRejected = true;
-    }
-
+    Task<ResultSnapshot> first = job.WaitForCompletionAsync(cancellation.Token);
+    Task<ResultSnapshot> second = job.WaitForCompletionAsync();
+    await socket.Receiving.Task.WaitAsync(TimeSpan.FromSeconds(5));
     cancellation.Cancel();
-    bool firstMonitorCancelled = false;
+    await AssertThrowsAsync<OperationCanceledException>(() => first);
+    AssertEqual(false, second.IsCompleted, "other waiter remains active");
+    AssertEqual(false, socket.Disposed.Task.IsCompleted, "caller cancellation leaves socket alive");
+    socket.Send(ResultJson("completed", ",\"updated_at\":\"2026-09-30T00:00:00Z\""));
+    ResultSnapshot completed = await second.WaitAsync(TimeSpan.FromSeconds(5));
+    AssertEqual(ResultStatus.Completed, completed.Status, "shared terminal status");
+    AssertEqual(true, ReferenceEquals(completed, await job.WaitForCompletionAsync()), "retained terminal snapshot");
+    AssertEqual(1, factory.CreatedCount, "single socket for concurrent callers");
+    AssertEqual(0, handler.Requests.Count, "no cloud cancellation or HTTP polling");
+    await socket.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+}
+
+static async Task TestMonitorSurvivesAllWaitersAsync()
+{
+    var socket = new ControlledWebSocket();
+    var factory = new QueueWebSocketFactory(socket);
+    using var job = new EmbodiedLabJob(CreateTransport(ResultHandler("completed"), factory),
+        "submission-1", "navigation_default", null, null);
+    using var cancellation = new CancellationTokenSource();
+    Task<ResultSnapshot> onlyWaiter = job.WaitForCompletionAsync(cancellation.Token);
+    await socket.Receiving.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    cancellation.Cancel();
+    await AssertThrowsAsync<OperationCanceledException>(() => onlyWaiter);
+    var updated = new TaskCompletionSource<ResultSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+    job.ResultUpdated += result => updated.TrySetResult(result);
+    socket.Send(ResultJson("running"));
+    AssertEqual(ResultStatus.Running, (await updated.Task.WaitAsync(TimeSpan.FromSeconds(5))).Status,
+        "monitor publishes with no waiters");
+    Task<ResultSnapshot> rejoined = job.WaitForCompletionAsync();
+    socket.Send(ResultJson("completed", ",\"updated_at\":\"2026-09-30T00:00:00Z\""));
+    await rejoined.WaitAsync(TimeSpan.FromSeconds(5));
+    AssertEqual(1, factory.CreatedCount, "rejoin reuses existing monitor");
+}
+
+static async Task TestStopRestartAndDisposeAsync()
+{
+    var handler = ResultHandler("running");
+    var firstSocket = new ControlledWebSocket();
+    var nextSocket = new ControlledWebSocket();
+    var factory = new QueueWebSocketFactory(firstSocket, nextSocket);
+    using var job = new EmbodiedLabJob(CreateTransport(handler, factory),
+        "submission-1", "navigation_default", "capability-1", null);
+    using var alreadyCancelled = new CancellationTokenSource();
+    alreadyCancelled.Cancel();
+    await AssertThrowsAsync<OperationCanceledException>(() => job.WaitForCompletionAsync(alreadyCancelled.Token));
+    AssertEqual(0, factory.CreatedCount, "pre-cancelled wait does not start I/O");
+    ResultSnapshot retained = await job.RefreshAsync();
+    Task<ResultSnapshot> first = job.WaitForCompletionAsync();
+    Task<ResultSnapshot> second = job.WaitForCompletionAsync();
+    await firstSocket.Receiving.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    await job.StopMonitoringAsync().WaitAsync(TimeSpan.FromSeconds(5));
+    await AssertThrowsAsync<OperationCanceledException>(() => first);
+    await AssertThrowsAsync<OperationCanceledException>(() => second);
+    AssertEqual(true, firstSocket.Disposed.Task.IsCompleted, "stop drains socket");
+    AssertEqual(true, ReferenceEquals(retained, job.LatestResult), "stop retains result");
+    await job.StopMonitoringAsync();
+    Task<ResultSnapshot> restarted = job.WaitForCompletionAsync();
+    await nextSocket.Receiving.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    AssertEqual(2, factory.CreatedCount, "restart opens one new socket");
+    job.Dispose();
+    job.Dispose();
+    await AssertThrowsAsync<OperationCanceledException>(() => restarted);
+    await nextSocket.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    await AssertThrowsAsync<ObjectDisposedException>(() => job.WaitForCompletionAsync());
+    await AssertThrowsAsync<ObjectDisposedException>(() => job.RefreshAsync());
+    await AssertThrowsAsync<ObjectDisposedException>(() => job.CancelAsync());
+    await AssertThrowsAsync<ObjectDisposedException>(() => job.StopMonitoringAsync());
+    AssertEqual(1, handler.Requests.Count, "stop/dispose never send cloud cancellation");
+}
+
+static async Task TestHttpTerminalCompletesWaitersAsync()
+{
+    foreach (bool cancelCloud in new[] { false, true })
+    {
+        var handler = new RecordingHttpHandler(request => JsonResponse(
+            ResultJson(cancelCloud ? "cancelled" : "completed")));
+        var socket = new ControlledWebSocket();
+        using var job = new EmbodiedLabJob(CreateTransport(handler, new QueueWebSocketFactory(socket)),
+            "submission-1", "navigation_default", "capability-1", null);
+        Task<ResultSnapshot> first = job.WaitForCompletionAsync();
+        Task<ResultSnapshot> second = job.WaitForCompletionAsync();
+        await socket.Receiving.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        ResultSnapshot terminal = cancelCloud ? await job.CancelAsync() : await job.RefreshAsync();
+        AssertEqual(true, ReferenceEquals(terminal, await first.WaitAsync(TimeSpan.FromSeconds(5))), "HTTP completes first");
+        AssertEqual(true, ReferenceEquals(terminal, await second.WaitAsync(TimeSpan.FromSeconds(5))), "HTTP completes second");
+        await socket.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        AssertEqual(1, handler.Requests.Count, "one explicit request");
+        AssertEqual(cancelCloud ? HttpMethod.Post : HttpMethod.Get, handler.Requests[0].Method, "explicit HTTP operation");
+    }
+}
+
+static async Task TestImmutableResultSnapshotAsync()
+{
+    ResultDocument wire = Newtonsoft.Json.JsonConvert.DeserializeObject<ResultDocument>(ResultJson("completed"))!;
+    var snapshot = new ResultSnapshot(wire);
+    string path = wire.ResultBundle.Artifacts.OnnxModel.Path;
+    wire.Status = ResultStatus.Failed;
+    wire.Progress.Message = "mutated producer";
+    wire.ResultBundle.Artifacts.OnnxModel.Path = "mutated producer path";
+    AssertEqual(ResultStatus.Completed, snapshot.Status, "snapshot owns status");
+    AssertEqual(path, snapshot.ToDocument().ResultBundle.Artifacts.OnnxModel.Path, "snapshot owns nested producer data");
+    var handler = ResultHandler("completed");
+    using var job = new EmbodiedLabJob(CreateTransport(handler, new QueueWebSocketFactory()),
+        "submission-1", "navigation_default", null, null);
+    ResultSnapshot? eventResult = null;
+    job.ResultUpdated += result =>
+    {
+        eventResult = result;
+        ResultDocument copy = result.ToDocument();
+        copy.Progress.Message = "consumer mutation";
+        copy.ResultBundle.Artifacts.OnnxModel.Path = "consumer mutation";
+        copy.ResultBundle.Compatibility.ActionLayout.Clear();
+    };
+    ResultSnapshot refreshed = await job.RefreshAsync();
+    AssertEqual(true, ReferenceEquals(refreshed, eventResult), "event and refresh share immutable value");
+    AssertEqual(true, ReferenceEquals(refreshed, job.LatestResult), "latest snapshot identity");
+    ResultDocument exported = refreshed.ToDocument();
+    AssertEqual(path, exported.ResultBundle.Artifacts.OnnxModel.Path, "nested artifact stays intact");
+    AssertEqual(2, exported.ResultBundle.Compatibility.ActionLayout.Count, "nested collection stays intact");
+    AssertEqual(false, refreshed.Progress.Message == "consumer mutation", "progress stays intact");
+    job.Dispose();
+    AssertEqual(ResultStatus.Completed, refreshed.Status, "snapshot survives disposal");
+    foreach (Type type in new[] { typeof(ResultSnapshot), typeof(ResultProgressSnapshot) })
+    {
+        AssertEqual(true, type.IsSealed, "snapshot cannot be overridden");
+        AssertEqual(false, type.GetProperties().Any(property => property.CanWrite), "snapshot has no writable properties");
+    }
+}
+
+static async Task TestNotificationContextAsync()
+{
+    var context = new QueuedNotificationContext();
+    using var job = new EmbodiedLabJob(CreateTransport(ResultHandler("running"), new QueueWebSocketFactory()),
+        "submission-1", "navigation_default", null, context);
+    int notifications = 0;
+    job.ResultUpdated += _ =>
+    {
+        AssertEqual(true, ReferenceEquals(context, SynchronizationContext.Current), "captured notification context");
+        notifications++;
+    };
+    await job.RefreshAsync();
+    AssertEqual(0, notifications, "notification posted rather than executed on publisher");
+    context.Drain();
+    AssertEqual(1, notifications, "notification delivered on context");
+    await job.RefreshAsync();
+    job.Dispose();
+    context.Drain();
+    AssertEqual(1, notifications, "queued notification suppressed after dispose");
+
+    using var direct = new EmbodiedLabJob(CreateTransport(ResultHandler("running"), new QueueWebSocketFactory()),
+        "submission-1", "navigation_default", null, null);
+    int publisherThread = Environment.CurrentManagedThreadId;
+    direct.ResultUpdated += _ => AssertEqual(publisherThread, Environment.CurrentManagedThreadId,
+        "without context synchronous refresh notifies on publisher thread");
+    await direct.RefreshAsync();
+}
+
+static async Task TestSupersededNotificationAsync()
+{
+    int reads = 0;
+    var handler = new RecordingHttpHandler(_ => JsonResponse(reads++ == 0
+        ? ResultJson("running")
+        : ResultJson("completed", ",\"updated_at\":\"2026-09-30T00:00:00Z\"")));
+    var context = new QueuedNotificationContext();
+    using var job = new EmbodiedLabJob(CreateTransport(handler, new QueueWebSocketFactory()),
+        "submission-1", "navigation_default", null, context);
+    var statuses = new List<ResultStatus>();
+    job.ResultUpdated += result => statuses.Add(result.Status);
+    await job.RefreshAsync(); // Queued running event has not reached the captured context yet.
+    SynchronizationContext? previous = SynchronizationContext.Current;
     try
     {
-        await firstMonitor;
+        SynchronizationContext.SetSynchronizationContext(context);
+        // The synchronous HTTP fake publishes completed inline on the captured context.
+        Task<ResultSnapshot> refresh = job.RefreshAsync();
+        AssertEqual(true, refresh.IsCompletedSuccessfully, "inline terminal update");
     }
-    catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+    finally
     {
-        firstMonitorCancelled = true;
+        SynchronizationContext.SetSynchronizationContext(previous);
     }
 
-    AssertEqual(true, concurrentMonitorRejected, "concurrent monitor rejection");
-    AssertEqual(true, firstMonitorCancelled, "first monitor cancellation");
+    context.Drain();
+    AssertSequence(new[] { ResultStatus.Completed }, statuses, "queued result cannot roll back terminal notification");
+}
+static async Task TestMonitorFailureAndRetryAsync()
+{
+    var socket = new ControlledWebSocket();
+    var retrySocket = new ControlledWebSocket();
+    using var job = new EmbodiedLabJob(CreateTransport(ResultHandler("running"), new QueueWebSocketFactory(socket, retrySocket)),
+        "submission-1", "navigation_default", null, null);
+    Task<ResultSnapshot> first = job.WaitForCompletionAsync();
+    Task<ResultSnapshot> second = job.WaitForCompletionAsync();
+    await socket.Receiving.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    socket.Fail(new InvalidOperationException("unrecoverable test failure"));
+    await AssertThrowsAsync<InvalidOperationException>(() => first.WaitAsync(TimeSpan.FromSeconds(5)));
+    await AssertThrowsAsync<InvalidOperationException>(() => second.WaitAsync(TimeSpan.FromSeconds(5)));
+    Task<ResultSnapshot> retry = job.WaitForCompletionAsync();
+    retrySocket.Send(ResultJson("completed"));
+    AssertEqual(ResultStatus.Completed, (await retry.WaitAsync(TimeSpan.FromSeconds(5))).Status, "monitor retry succeeds");
 }
 
 static EmbodiedLabTransport CreateTransport(
@@ -1672,6 +1914,8 @@ internal sealed class QueueWebSocketFactory : IResultWebSocketFactory
         this.sockets = new Queue<IResultWebSocket>(sockets);
     }
 
+    internal int CreatedCount { get; private set; }
+
     public IResultWebSocket Create()
     {
         if (sockets.Count == 0)
@@ -1679,6 +1923,60 @@ internal sealed class QueueWebSocketFactory : IResultWebSocketFactory
             throw new InvalidOperationException("No scripted WebSocket remains.");
         }
 
+        CreatedCount++;
         return sockets.Dequeue();
+    }
+}
+
+internal sealed class ControlledWebSocket : IResultWebSocket
+{
+    private readonly System.Threading.Channels.Channel<string> messages =
+        System.Threading.Channels.Channel.CreateUnbounded<string>();
+    internal TaskCompletionSource<bool> Receiving { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    internal TaskCompletionSource<bool> Disposed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public WebSocketState State { get; private set; }
+    internal void Send(string json) => messages.Writer.TryWrite(json);
+    internal void Fail(Exception exception) => messages.Writer.TryComplete(exception);
+    public Task ConnectAsync(Uri uri, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        State = WebSocketState.Open;
+        return Task.CompletedTask;
+    }
+    public async Task<WebSocketReceiveResult> ReceiveAsync(ArraySegment<byte> buffer, CancellationToken cancellationToken)
+    {
+        Receiving.TrySetResult(true);
+        string json = await messages.Reader.ReadAsync(cancellationToken);
+        byte[] bytes = Encoding.UTF8.GetBytes(json);
+        Array.Copy(bytes, 0, buffer.Array!, buffer.Offset, bytes.Length);
+        return new WebSocketReceiveResult(bytes.Length, WebSocketMessageType.Text, true);
+    }
+    public void Abort() => State = WebSocketState.Aborted;
+    public void Dispose()
+    {
+        State = WebSocketState.Closed;
+        Disposed.TrySetResult(true);
+    }
+}
+
+internal sealed class QueuedNotificationContext : SynchronizationContext
+{
+    private readonly Queue<Action> callbacks = new();
+    public override void Post(SendOrPostCallback callback, object? state) => callbacks.Enqueue(() => callback(state));
+    internal void Drain()
+    {
+        SynchronizationContext? previous = Current;
+        SetSynchronizationContext(this);
+        try
+        {
+            while (callbacks.Count != 0)
+            {
+                callbacks.Dequeue()();
+            }
+        }
+        finally
+        {
+            SetSynchronizationContext(previous);
+        }
     }
 }
