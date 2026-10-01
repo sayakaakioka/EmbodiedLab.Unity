@@ -278,7 +278,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             progressText = "Waiting for the trainer to start.";
         }
 
-        private void ApplyResult(ResultDocument result)
+        private void ApplyResult(ResultSnapshot result)
         {
             EmbodiedLabJob? currentJob = cloudJob?.Job;
             if (currentJob == null ||
@@ -292,7 +292,9 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
             submissionIdText = result.SubmissionId;
             jobStatusText = result.Status.ToString();
-            progressText = QuickstartProgressText.Format(result.Status, result.Progress);
+            progressText = QuickstartProgressText.Format(
+                result.Status, result.Progress.Phase, result.Progress.CurrentStep,
+                result.Progress.TotalSteps, result.Progress.Message);
             activityText = result.Status switch
             {
                 ResultStatus.Completed => "Training completed.",

@@ -87,7 +87,7 @@ public async Task RunTrainingAsync(
     job.ResultUpdated += result =>
         Debug.Log($"{result.Status}: {result.Progress?.CurrentStep}");
 
-    ResultDocument result = await job.WaitForCompletionAsync(cancellationToken);
+    ResultSnapshot result = await job.WaitForCompletionAsync(cancellationToken);
     if (result.Status != ResultStatus.Completed)
     {
         return;
@@ -130,7 +130,7 @@ The replay-bundle artifact currently points to its manifest, so
 `DownloadReplayBundleAsync` saves that manifest. `DownloadModelAsync` requires
 an `onnx_model` artifact that declares the ONNX format; it does not fall back to
 Sentis or generic model artifacts. Result artifacts exist only at
-`job.LatestResult?.ResultBundle?.Artifacts`; the SDK does
+`job.LatestResult?.ToDocument().ResultBundle?.Artifacts`; the SDK does
 not expose the removed top-level result artifact field.
 
 Read a saved scenario with the generated concrete sensor and reward types intact:
@@ -148,7 +148,8 @@ string manifestPath = Path.Combine(
     outputDirectory,
     "replay",
     "manifest.json");
-ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(manifestPath);
+ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(
+    manifestPath, job.SubmissionId, scenario.ScenarioId);
 EvalReplayBundleChunk selectedChunk = manifest.Chunks
     .OfType<EvalReplayBundleChunk>()
     .First();
@@ -162,7 +163,8 @@ await job.DownloadReplayChunkAsync(
     replayChunkPath,
     cancellationToken);
 IReadOnlyList<ReplayLogStep> steps =
-    EmbodiedLabReplay.ReadSteps(replayChunkPath);
+    EmbodiedLabReplay.ReadChunk(
+        replayChunkPath, selectedChunk, job.SubmissionId, manifest.ScenarioId);
 ```
 
 Add `System.Collections.Generic` and `System.Linq` for the collection types and
@@ -199,6 +201,30 @@ server is a capability: store it as a secret and do not log it. Restoring
 without it still permits monitoring and downloads, but `CanCancel` is false. A
 C# `CancellationToken` only stops the local SDK operation. Call `CancelAsync`
 to request cancellation of the cloud job.
+
+### Local job lifetime and result ownership
+
+`WaitForCompletionAsync` shares one monitor across callers. Each caller's token
+cancels only its own wait; the monitor continues even if every waiter leaves.
+`await job.StopMonitoringAsync()` stops and drains local monitoring, cancels its
+remaining waits, and preserves the latest result. A later wait can restart it.
+Terminal results from the stream, `RefreshAsync`, or `CancelAsync` complete the
+shared waits. `Dispose` stops local work and releases resources; only
+`CancelAsync` requests cloud cancellation.
+
+`LatestResult`, `ResultUpdated`, `RefreshAsync`, `CancelAsync`, and completion
+return immutable `ResultSnapshot` values. Progress is also immutable. Retained
+snapshots do not change on subsequent updates or disposal. `ToDocument()` makes
+an independent mutable wire copy, including all nested artifact metadata and
+collections; editing that copy cannot affect the job or another consumer.
+Typed artifact download results remain a separate roadmap stage.
+
+Create/restore a job on Unity's main thread to capture its synchronization
+context for `ResultUpdated`. Without a context, callbacks run on the publishing
+thread, which may be a transport worker. Event handlers must not throw or block.
+Notifications still queued when the job is disposed, or superseded by a newer
+accepted snapshot, are suppressed. If a caller observes cancellation before its
+wait returns, that wait is cancelled even if completion races with cancellation.
 
 ## Development
 

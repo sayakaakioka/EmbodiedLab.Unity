@@ -27,7 +27,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         internal event Action<string, Exception>? Failed;
 
-        internal event Action<ResultDocument>? ResultUpdated;
+        internal event Action<ResultSnapshot>? ResultUpdated;
 
         internal event Action<string>? SubmissionStarted;
 
@@ -87,7 +87,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 operation = Operation.None;
                 ReportActivity("Monitoring result updates...");
 
-                ResultDocument result = await activeJob.WaitForCompletionAsync(token);
+                ResultSnapshot result = await activeJob.WaitForCompletionAsync(token);
                 ResultUpdated?.Invoke(result);
             }
             catch (OperationCanceledException)
@@ -95,7 +95,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 if (!disposed && generation == monitorGeneration)
                 {
                     ReportActivity(
-                        "Local monitoring stopped. The cloud job may still be running.");
+                        "Local wait stopped. Monitoring and the cloud job may still be running.");
                 }
             }
             catch (Exception exception)
@@ -130,7 +130,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             try
             {
                 ReportActivity("Requesting cloud cancellation...");
-                ResultDocument result = await activeJob.CancelAsync(cancellationToken);
+                ResultSnapshot result = await activeJob.CancelAsync(cancellationToken);
                 if (ReferenceEquals(job, activeJob))
                 {
                     ResultUpdated?.Invoke(result);
@@ -171,7 +171,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             job.ResultUpdated += HandleResultUpdated;
         }
 
-        private void HandleResultUpdated(ResultDocument result)
+        private void HandleResultUpdated(ResultSnapshot result)
         {
             ResultUpdated?.Invoke(result);
         }

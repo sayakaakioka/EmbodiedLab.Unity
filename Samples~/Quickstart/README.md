@@ -64,7 +64,7 @@ EmbodiedLabJob job = await EmbodiedLabJob.SubmitAsync(
     cancellationToken);
 
 job.ResultUpdated += HandleResultUpdated;
-ResultDocument completed = await job.WaitForCompletionAsync(cancellationToken);
+ResultSnapshot completed = await job.WaitForCompletionAsync(cancellationToken);
 ```
 
 The SDK uses WebSocket updates while the stream is healthy and performs HTTP
@@ -77,6 +77,30 @@ While a trainer is starting, a valid queued result can contain
 progress appears after a total step count is available. The formatting rule is
 isolated in `QuickstartProgressText.cs`.
 
+### Local job lifetime and result ownership
+
+`WaitForCompletionAsync` shares one monitor across callers. Each caller's token
+cancels only its own wait; the monitor continues even if every waiter leaves.
+`await job.StopMonitoringAsync()` stops and drains local monitoring, cancels its
+remaining waits, and preserves the latest result. A later wait can restart it.
+Terminal results from the stream, `RefreshAsync`, or `CancelAsync` complete the
+shared waits. `Dispose` stops local work and releases resources; only
+`CancelAsync` requests cloud cancellation.
+
+`LatestResult`, `ResultUpdated`, `RefreshAsync`, `CancelAsync`, and completion
+return immutable `ResultSnapshot` values. Progress is also immutable. Retained
+snapshots do not change on subsequent updates or disposal. `ToDocument()` makes
+an independent mutable wire copy, including all nested artifact metadata and
+collections; editing that copy cannot affect the job or another consumer.
+Typed artifact download results remain a separate roadmap stage.
+
+Create/restore a job on Unity's main thread to capture its synchronization
+context for `ResultUpdated`. Without a context, callbacks run on the publishing
+thread, which may be a transport worker. Event handlers must not throw or block.
+Notifications still queued when the job is disposed, or superseded by a newer
+accepted snapshot, are suppressed. If a caller observes cancellation before its
+wait returns, that wait is cancelled even if completion races with cancellation.
+
 ### Optional: cancel the cloud job
 
 **Cancel Cloud Job** requires a second confirmation. It calls `CancelAsync` on
@@ -84,7 +108,7 @@ the active job. A .NET `CancellationToken` stops only the local wait; it never
 cancels cloud training.
 
 ```csharp
-ResultDocument cancelling = await job.CancelAsync(cancellationToken);
+ResultSnapshot cancelling = await job.CancelAsync(cancellationToken);
 ```
 
 ### Optional: restore in an application
@@ -126,10 +150,21 @@ The replay flow is deliberately explicit:
 
 ```csharp
 await job.DownloadReplayBundleAsync(manifestPath, cancellationToken);
-ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(manifestPath);
+ReplayBundleManifest manifest = EmbodiedLabReplay.ReadManifest(
+    manifestPath, job.SubmissionId, scenario.ScenarioId);
+EvalReplayBundleChunk chunk =
+    QuickstartReplayTimeline.SelectLatestDeterministicEvaluationChunk(manifest);
+string chunkPath = QuickstartLocalPaths.GetReplayChunkPath(
+    Application.persistentDataPath, job.SubmissionId, chunk.Path);
 await job.DownloadReplayChunkAsync(chunk, chunkPath, cancellationToken);
-IReadOnlyList<ReplayLogStep> steps = EmbodiedLabReplay.ReadSteps(chunkPath);
+IReadOnlyList<ReplayLogStep> steps = EmbodiedLabReplay.ReadChunk(
+    chunkPath, chunk, job.SubmissionId, manifest.ScenarioId);
 ```
+
+`QuickstartReplayTimeline` and `QuickstartLocalPaths` are tutorial helpers, not
+public SDK APIs. The manifest read checks job/scenario identity; `ReadChunk`
+checks those identities and the selected chunk metadata against the decoded
+steps. The download APIs also verify artifact size and SHA-256.
 
 Artifacts are stored under:
 

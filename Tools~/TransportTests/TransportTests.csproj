@@ -7,6 +7,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../Runtime/ResultSnapshot.cs" Link="Runtime/ResultSnapshot.cs" />
     <Compile Include="../../Runtime/Contracts/EmbodiedLabContracts.g.cs" Link="Generated/EmbodiedLabContracts.g.cs" />
     <Compile Include="../../Runtime/EmbodiedLabEndpoints.cs" Link="Runtime/EmbodiedLabEndpoints.cs" />
     <Compile Include="../../Runtime/EmbodiedLabJob.cs" Link="Runtime/EmbodiedLabJob.cs" />

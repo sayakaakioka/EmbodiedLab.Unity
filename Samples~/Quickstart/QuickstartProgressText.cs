@@ -8,27 +8,30 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
     {
         internal static string Format(ResultStatus status, Progress? progress)
         {
-            if (progress == null)
-            {
-                return "-";
-            }
+            return progress == null
+                ? "-"
+                : Format(status, progress.Phase, progress.CurrentStep, progress.TotalSteps, progress.Message);
+        }
 
-            if (status == ResultStatus.Queued && progress.TotalSteps <= 0)
+        internal static string Format(
+            ResultStatus status, ResultStatus phase, int currentStep, int totalSteps, string message)
+        {
+            if (status == ResultStatus.Queued && totalSteps <= 0)
             {
                 return "Waiting for the trainer to start.";
             }
 
-            if (progress.TotalSteps <= 0)
+            if (totalSteps <= 0)
             {
-                return string.IsNullOrWhiteSpace(progress.Message)
-                    ? progress.Phase.ToString()
-                    : $"{progress.Phase}: {progress.Message}";
+                return string.IsNullOrWhiteSpace(message)
+                    ? phase.ToString()
+                    : $"{phase}: {message}";
             }
 
-            string message = string.IsNullOrWhiteSpace(progress.Message)
+            string suffix = string.IsNullOrWhiteSpace(message)
                 ? string.Empty
-                : $" {progress.Message}";
-            return $"{progress.Phase}: {progress.CurrentStep}/{progress.TotalSteps}{message}";
+                : $" {message}";
+            return $"{phase}: {currentStep}/{totalSteps}{suffix}";
         }
     }
 }

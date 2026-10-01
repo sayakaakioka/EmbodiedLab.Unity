@@ -26,7 +26,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
 
         internal event Action<string, Exception>? Failed;
 
-        internal event Action<ResultDocument>? ResultRefreshed;
+        internal event Action<ResultSnapshot>? ResultRefreshed;
 
         internal bool IsBusy => operation != Operation.None;
 
@@ -91,7 +91,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
                 CreateParentDirectory(destinationPath, "Model");
                 ReportActivity("Downloading the trained model...");
                 await job.DownloadModelAsync(destinationPath, cancellationToken);
-                ModelContract = job.LatestResult?.ResultBundle?.Artifacts?.OnnxModel ??
+                ModelContract = job.LatestResult?.ToDocument().ResultBundle?.Artifacts?.OnnxModel ??
                     throw new InvalidDataException(
                         "The completed result has no ONNX model metadata.");
                 ModelPath = destinationPath;
@@ -130,7 +130,7 @@ namespace EmbodiedLab.Unity.Samples.Quickstart
             try
             {
                 ReportActivity("Refreshing the completed job...");
-                ResultDocument refreshed = await job.RefreshAsync(cancellationToken);
+                ResultSnapshot refreshed = await job.RefreshAsync(cancellationToken);
                 ResultRefreshed?.Invoke(refreshed);
                 if (refreshed.Status != ResultStatus.Completed)
                 {

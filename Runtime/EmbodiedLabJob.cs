@@ -20,8 +20,8 @@ namespace EmbodiedLab.Unity
         private readonly SynchronizationContext? synchronizationContext;
         private readonly CancellationTokenSource lifetimeCancellation = new();
 
-        private ResultDocument? latestResult;
-        private bool completionMonitorRunning;
+        private ResultSnapshot? latestResult;
+        private MonitorState? monitor;
         private bool disposed;
 
         internal EmbodiedLabJob(
@@ -38,17 +38,31 @@ namespace EmbodiedLab.Unity
             this.synchronizationContext = synchronizationContext;
         }
 
-        public event Action<ResultDocument>? ResultUpdated;
+        /// <summary>Notifies consumers of an accepted immutable result snapshot.</summary>
+        /// <remarks>
+        /// Uses the SynchronizationContext captured by SubmitAsync or Restore. Create the job on
+        /// Unity's main thread for main-thread notifications. Without a context, handlers run on
+        /// the publishing thread, which can be a transport worker. Queued notifications are
+        /// suppressed after Dispose or when superseded by a newer accepted snapshot. Handlers must
+        /// not throw or block. Handler exceptions propagate on the notification thread and may
+        /// disrupt monitoring. No notification is raised for a rejected stale result.
+        /// </remarks>
+        public event Action<ResultSnapshot>? ResultUpdated;
 
+        /// <summary>Gets the server submission identity.</summary>
         public string SubmissionId { get; }
 
+        /// <summary>Gets the expected scenario identity used to validate results and Replay.</summary>
         public string ScenarioId { get; }
 
+        /// <summary>Gets the secret cloud-cancellation capability, or null for a read-only handle. Do not log it.</summary>
         public string? CancelToken { get; }
 
+        /// <summary>Gets whether this handle holds a cloud-cancellation capability.</summary>
         public bool CanCancel => CancelToken != null;
 
-        public ResultDocument? LatestResult
+        /// <summary>Gets the last accepted immutable snapshot, or null before the first result. Safe to retain after disposal.</summary>
+        public ResultSnapshot? LatestResult
         {
             get
             {
@@ -59,15 +73,26 @@ namespace EmbodiedLab.Unity
             }
         }
 
+        /// <summary>Gets whether the latest accepted state is completed, failed, or cancelled.</summary>
         public bool IsTerminal
         {
             get
             {
-                ResultDocument? result = LatestResult;
+                ResultSnapshot? result = LatestResult;
                 return result != null && IsTerminalStatus(result.Status);
             }
         }
 
+        /// <summary>Submits a scenario and returns an owned job handle; the server dispatches training.</summary>
+        /// <remarks>Captures the current SynchronizationContext. Dispose the returned handle when finished.
+        /// Cancelling the HTTP request does not guarantee that the server has not accepted the job.
+        /// The existing bounded transport recovery uses the same submission identity and capability.</remarks>
+        /// <param name="endpoints">Validated API and result-stream endpoints.</param>
+        /// <param name="scenario">Scenario to submit; do not mutate it while submission is pending.</param>
+        /// <param name="cancellationToken">Cancels local submission/recovery, not accepted cloud training.</param>
+        /// <returns>A disposable handle. Monitoring begins with WaitForCompletionAsync.</returns>
+        /// <exception cref="ArgumentNullException">Endpoints or scenario are null.</exception>
+        /// <exception cref="OperationCanceledException">Local submission was cancelled.</exception>
         public static async Task<EmbodiedLabJob> SubmitAsync(
             EmbodiedLabEndpoints endpoints,
             ScenarioBundle scenario,
@@ -132,6 +157,14 @@ namespace EmbodiedLab.Unity
             return job;
         }
 
+        /// <summary>Creates a local handle without making a request or restarting cloud training.</summary>
+        /// <remarks>Captures the current SynchronizationContext. The caller owns and must dispose the handle.</remarks>
+        /// <param name="endpoints">Validated service endpoints.</param>
+        /// <param name="submissionId">Existing nonempty submission identity.</param>
+        /// <param name="scenarioId">Expected nonempty scenario identity.</param>
+        /// <param name="cancelToken">Optional secret capability; absent means cloud cancellation is unavailable.</param>
+        /// <exception cref="ArgumentException">An identity is empty.</exception>
+        /// <exception cref="ArgumentNullException">Endpoints are null.</exception>
         public static EmbodiedLabJob Restore(
             EmbodiedLabEndpoints endpoints,
             string submissionId,
@@ -162,54 +195,170 @@ namespace EmbodiedLab.Unity
             }
         }
 
-        public async Task<ResultDocument> WaitForCompletionAsync(
+        /// <summary>Waits for a terminal result using the job's single shared result monitor.</summary>
+        /// <remarks>
+        /// The first waiter starts monitoring. Cancelling any caller only cancels that caller's
+        /// wait; monitoring continues even when no waiters remain. If cancellation is observed
+        /// before this wait returns, cancellation wins over a concurrently completed result. A terminal refresh or cloud
+        /// cancellation response also completes all waiters. After a monitoring failure or an
+        /// awaited StopMonitoringAsync, a subsequent call may start a new monitor.
+        /// </remarks>
+        /// <param name="cancellationToken">Cancels this local wait only, never the cloud job.</param>
+        /// <returns>The immutable terminal result shared by waiters.</returns>
+        /// <exception cref="ObjectDisposedException">The job has been disposed.</exception>
+        /// <exception cref="OperationCanceledException">This wait, monitoring, or the job was stopped.</exception>
+        public async Task<ResultSnapshot> WaitForCompletionAsync(
             CancellationToken cancellationToken = default)
         {
-            CancellationTokenSource operationCancellation;
+            MonitorState state;
+            bool start = false;
             lock (gate)
             {
                 ThrowIfDisposed();
+                cancellationToken.ThrowIfCancellationRequested();
                 if (latestResult != null && IsTerminalStatus(latestResult.Status))
                 {
                     return latestResult;
                 }
 
-                if (completionMonitorRunning)
+                if (monitor == null)
                 {
-                    throw new InvalidOperationException(
-                        "This job already has an active completion monitor.");
+                    monitor = new MonitorState(lifetimeCancellation.Token);
+                    start = true;
                 }
 
-                completionMonitorRunning = true;
-                operationCancellation = CreateOperationCancellation(cancellationToken);
+                state = monitor;
             }
 
+            if (start)
+            {
+                _ = RunMonitorAsync(state);
+            }
+
+            return await WaitForCallerAsync(state.Completion.Task, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>Stops local monitoring, cancels its pending waits, and awaits monitor cleanup.</summary>
+        /// <remarks>
+        /// Does not cancel the cloud job or unrelated refresh/download requests, clear the latest
+        /// result, or dispose the job. Await completion before requesting a fresh monitor.
+        /// With no active monitor this is a no-op. Call CancelAsync to cancel cloud training.
+        /// </remarks>
+        /// <exception cref="ObjectDisposedException">The job has been disposed.</exception>
+        public Task StopMonitoringAsync()
+        {
+            lock (gate)
+            {
+                ThrowIfDisposed();
+                if (monitor == null)
+                {
+                    return Task.CompletedTask;
+                }
+
+                MonitorState state = monitor;
+                state.Completion.TrySetCanceled();
+                state.Cancellation.Cancel();
+                return state.Stopped.Task;
+            }
+        }
+
+        private async Task RunMonitorAsync(MonitorState state)
+        {
+            Exception? failure = null;
             try
             {
                 await transport.MonitorResultAsync(
                     SubmissionId,
-                    result => PublishResult(result),
-                    operationCancellation.Token);
-                ResultDocument? result = LatestResult;
-                if (result == null || !IsTerminalStatus(result.Status))
+                    result => PublishResult(result, state),
+                    state.Cancellation.Token).ConfigureAwait(false);
+                lock (gate)
                 {
-                    throw new InvalidOperationException(
-                        "EmbodiedLab monitoring ended without a terminal result.");
+                    if (latestResult != null && IsTerminalStatus(latestResult.Status))
+                    {
+                        state.Completion.TrySetResult(latestResult);
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException(
+                            "EmbodiedLab monitoring ended without a terminal result.");
+                    }
                 }
-
-                return result;
+            }
+            catch (OperationCanceledException) when (state.Cancellation.IsCancellationRequested)
+            {
+                // Publish cancellation only after removing this monitor from the job.
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
             }
             finally
             {
-                operationCancellation.Dispose();
                 lock (gate)
                 {
-                    completionMonitorRunning = false;
+                    if (ReferenceEquals(monitor, state))
+                    {
+                        monitor = null;
+                    }
+
+                    state.Cancellation.Dispose();
+                    // A caller that observes failure can immediately start a fresh monitor.
+                    if (failure != null)
+                    {
+                        state.Completion.TrySetException(failure);
+                        // Observe failures even when every caller has left its local wait.
+                        _ = state.Completion.Task.Exception;
+                    }
+                    else
+                    {
+                        state.Completion.TrySetCanceled();
+                    }
+
+                    state.Stopped.TrySetResult(true);
                 }
             }
         }
 
-        public async Task<ResultDocument> RefreshAsync(
+        private static async Task<ResultSnapshot> WaitForCallerAsync(
+            Task<ResultSnapshot> completion,
+            CancellationToken cancellationToken)
+        {
+            if (!cancellationToken.CanBeCanceled)
+            {
+                return await completion.ConfigureAwait(false);
+            }
+
+            var cancelled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using (cancellationToken.Register(() => cancelled.TrySetResult(true)))
+            {
+                await Task.WhenAny(completion, cancelled.Task).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                return await completion.ConfigureAwait(false);
+            }
+        }
+
+        private sealed class MonitorState
+        {
+            internal readonly CancellationTokenSource Cancellation;
+            internal readonly TaskCompletionSource<ResultSnapshot> Completion =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+            internal readonly TaskCompletionSource<bool> Stopped =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            internal MonitorState(CancellationToken lifetimeToken)
+            {
+                Cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetimeToken);
+            }
+        }
+
+        /// <summary>Fetches and publishes a result, rejecting stale state and terminal rollback.</summary>
+        /// <remarks>A terminal response completes shared waiters and stops the local monitor.</remarks>
+        /// <param name="cancellationToken">Cancels only this HTTP refresh.</param>
+        /// <returns>The latest accepted immutable snapshot, which may be newer than the response.</returns>
+        /// <exception cref="ObjectDisposedException">The job is disposed.</exception>
+        /// <exception cref="InvalidOperationException">The response belongs to another submission or scenario.</exception>
+        /// <exception cref="OperationCanceledException">The request or job was stopped.</exception>
+        public async Task<ResultSnapshot> RefreshAsync(
             CancellationToken cancellationToken = default)
         {
             using CancellationTokenSource operationCancellation =
@@ -220,7 +369,16 @@ namespace EmbodiedLab.Unity
             return PublishResult(result);
         }
 
-        public async Task<ResultDocument> CancelAsync(
+        /// <summary>Requests cloud cancellation using this handle's capability.</summary>
+        /// <remarks>The only lifecycle operation that cancels cloud training. A cancelling response
+        /// is not terminal; continue waiting for cancellation to finish. Local request cancellation
+        /// does not undo a request already accepted by the server.</remarks>
+        /// <param name="cancellationToken">Cancels this local HTTP operation only.</param>
+        /// <returns>The latest accepted immutable snapshot.</returns>
+        /// <exception cref="InvalidOperationException">No capability is available or response identity differs.</exception>
+        /// <exception cref="ObjectDisposedException">The job is disposed.</exception>
+        /// <exception cref="OperationCanceledException">The request or job was stopped.</exception>
+        public async Task<ResultSnapshot> CancelAsync(
             CancellationToken cancellationToken = default)
         {
             string cancelToken = CancelToken ?? throw new InvalidOperationException(
@@ -234,6 +392,17 @@ namespace EmbodiedLab.Unity
             return PublishResult(result);
         }
 
+        /// <summary>Downloads and validates the selected artifact before replacing the destination.</summary>
+        /// <remarks>Uses the accepted result metadata and existing size/SHA-256 validation.
+        /// Limits are 1 GiB for ONNX, 1 MiB for a manifest, and 64 MiB for compressed Replay;
+        /// Replay parsing also retains its identity and resource limits. Failure or cancellation
+        /// preserves an existing destination and removes the temporary download.</remarks>
+        /// <param name="destinationPath">Caller-selected final file path.</param>
+        /// <param name="cancellationToken">Cancels this download only.</param>
+        /// <exception cref="ObjectDisposedException">The job is disposed.</exception>
+        /// <exception cref="InvalidOperationException">No required artifact metadata is available.</exception>
+        /// <exception cref="InvalidDataException">Artifact integrity, format or Replay validation fails.</exception>
+        /// <exception cref="OperationCanceledException">The request or job was stopped.</exception>
         public async Task DownloadReplayBundleAsync(
             string destinationPath,
             CancellationToken cancellationToken = default)
@@ -265,6 +434,18 @@ namespace EmbodiedLab.Unity
                     ScenarioId));
         }
 
+        /// <summary>Downloads and validates the selected artifact before replacing the destination.</summary>
+        /// <remarks>Uses the accepted result metadata and existing size/SHA-256 validation.
+        /// Limits are 1 GiB for ONNX, 1 MiB for a manifest, and 64 MiB for compressed Replay;
+        /// Replay parsing also retains its identity and resource limits. Failure or cancellation
+        /// preserves an existing destination and removes the temporary download.</remarks>
+        /// <param name="destinationPath">Caller-selected final file path.</param>
+        /// <param name="cancellationToken">Cancels this download only.</param>
+        /// <exception cref="ObjectDisposedException">The job is disposed.</exception>
+        /// <exception cref="InvalidOperationException">No required artifact metadata is available.</exception>
+        /// <exception cref="InvalidDataException">Artifact integrity, format or Replay validation fails.</exception>
+        /// <exception cref="OperationCanceledException">The request or job was stopped.</exception>
+        /// <param name="chunk">Selected manifest entry; do not mutate it while the request is pending.</param>
         public async Task DownloadReplayChunkAsync(
             ReplayBundleChunk chunk,
             string destinationPath,
@@ -295,6 +476,17 @@ namespace EmbodiedLab.Unity
                     validationCancellation));
         }
 
+        /// <summary>Downloads and validates the selected artifact before replacing the destination.</summary>
+        /// <remarks>Uses the accepted result metadata and existing size/SHA-256 validation.
+        /// Limits are 1 GiB for ONNX, 1 MiB for a manifest, and 64 MiB for compressed Replay;
+        /// Replay parsing also retains its identity and resource limits. Failure or cancellation
+        /// preserves an existing destination and removes the temporary download.</remarks>
+        /// <param name="destinationPath">Caller-selected final file path.</param>
+        /// <param name="cancellationToken">Cancels this download only.</param>
+        /// <exception cref="ObjectDisposedException">The job is disposed.</exception>
+        /// <exception cref="InvalidOperationException">No required artifact metadata is available.</exception>
+        /// <exception cref="InvalidDataException">Artifact integrity, format or Replay validation fails.</exception>
+        /// <exception cref="OperationCanceledException">The request or job was stopped.</exception>
         public async Task DownloadModelAsync(
             string destinationPath,
             CancellationToken cancellationToken = default)
@@ -323,6 +515,10 @@ namespace EmbodiedLab.Unity
                 operationCancellation.Token);
         }
 
+        /// <summary>Stops local monitoring and operations and releases transport resources.</summary>
+        /// <remarks>Idempotent. Does not send cloud cancellation. Pending waits are cancelled,
+        /// queued events are suppressed, and existing immutable snapshots remain readable.
+        /// Does not synchronously wait for in-flight I/O cleanup.</remarks>
         public void Dispose()
         {
             lock (gate)
@@ -333,6 +529,7 @@ namespace EmbodiedLab.Unity
                 }
 
                 disposed = true;
+                monitor?.Completion.TrySetCanceled();
             }
 
             lifetimeCancellation.Cancel();
@@ -404,9 +601,9 @@ namespace EmbodiedLab.Unity
 
         private ResultArtifacts GetArtifacts()
         {
-            ResultDocument result = LatestResult ?? throw new InvalidOperationException(
+            ResultSnapshot result = LatestResult ?? throw new InvalidOperationException(
                 "No result has been received for this job.");
-            return result.ResultBundle?.Artifacts ?? throw new InvalidOperationException(
+            return result.ToDocument().ResultBundle?.Artifacts ?? throw new InvalidOperationException(
                 "The latest result does not contain artifact metadata.");
         }
 
@@ -428,7 +625,7 @@ namespace EmbodiedLab.Unity
                 lifetimeCancellation.Token);
         }
 
-        private ResultDocument PublishResult(ResultDocument result)
+        private ResultSnapshot PublishResult(ResultDocument result, MonitorState? source = null)
         {
             if (result == null)
             {
@@ -451,11 +648,13 @@ namespace EmbodiedLab.Unity
                     "EmbodiedLab returned a result for a different Scenario.");
             }
 
+            ResultSnapshot snapshot;
             lock (gate)
             {
-                if (disposed)
+                if (disposed || (source != null &&
+                    (!ReferenceEquals(monitor, source) || source.Cancellation.IsCancellationRequested)))
                 {
-                    return latestResult ?? result;
+                    return latestResult ?? new ResultSnapshot(result);
                 }
 
                 if (latestResult != null && !ShouldAcceptResult(latestResult, result))
@@ -463,22 +662,29 @@ namespace EmbodiedLab.Unity
                     return latestResult;
                 }
 
-                latestResult = result;
+                snapshot = new ResultSnapshot(result);
+                latestResult = snapshot;
+                if (IsTerminalStatus(snapshot.Status) && monitor != null)
+                {
+                    MonitorState active = monitor;
+                    active.Completion.TrySetResult(snapshot);
+                    active.Cancellation.Cancel();
+                }
             }
 
             if (synchronizationContext != null &&
                 !ReferenceEquals(SynchronizationContext.Current, synchronizationContext))
             {
-                synchronizationContext.Post(_ => RaiseResultUpdated(result), null);
-                return result;
+                synchronizationContext.Post(_ => RaiseResultUpdated(snapshot), null);
+                return snapshot;
             }
 
-            RaiseResultUpdated(result);
-            return result;
+            RaiseResultUpdated(snapshot);
+            return snapshot;
         }
 
         private static bool ShouldAcceptResult(
-            ResultDocument current,
+            ResultSnapshot current,
             ResultDocument candidate)
         {
             if (IsTerminalStatus(current.Status) && current.Status != candidate.Status)
@@ -500,12 +706,19 @@ namespace EmbodiedLab.Unity
                 out timestamp);
         }
 
-        private void RaiseResultUpdated(ResultDocument result)
+        private void RaiseResultUpdated(ResultSnapshot result)
         {
-            Action<ResultDocument>? handler;
+            Action<ResultSnapshot>? handler;
             lock (gate)
             {
                 if (disposed)
+                {
+                    return;
+                }
+
+                // A queued notification must not roll a consumer back after an inline update
+                // on the captured context has already published a newer result.
+                if (!ReferenceEquals(result, latestResult))
                 {
                     return;
                 }
